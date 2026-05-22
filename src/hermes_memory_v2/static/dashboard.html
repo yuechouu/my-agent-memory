@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Memory v2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;height:100vh}
+.sidebar{width:240px;background:#161b22;border-right:1px solid #30363d;padding:16px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
+.sidebar h2{font-size:18px;color:#58a6ff;margin-bottom:4px}
+.sidebar label{font-size:12px;color:#8b949e;display:block;margin-bottom:4px}
+.sidebar select,.sidebar input,.sidebar button{width:100%;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:13px}
+.sidebar button{background:#238636;border-color:#238636;color:#fff;cursor:pointer;font-weight:600}
+.sidebar button:hover{background:#2ea043}
+.sidebar button.danger{background:#da3633;border-color:#da3633}
+.sidebar button.danger:hover{background:#f85149}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.toolbar{display:flex;align-items:center;gap:12px;padding:12px 20px;background:#161b22;border-bottom:1px solid #30363d}
+.toolbar .title{font-size:16px;font-weight:600;color:#f0f6fc}
+.toolbar .spacer{flex:1}
+.toolbar .stat{font-size:12px;color:#8b949e}
+.toolbar button{padding:6px 14px;background:#238636;border:1px solid #238636;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.toolbar button:hover{background:#2ea043}
+.toolbar button.danger{background:#da3633;border-color:#da3633}
+.toolbar button.danger:hover{background:#f85149}
+.entry-list{flex:1;overflow-y:auto;padding:12px 20px}
+.entry{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start}
+.entry.pinned{border-color:#d2991d;background:#1a1708}
+.entry .pin-icon{color:#d2991d;font-size:16px;flex-shrink:0;margin-top:2px}
+.entry .body{flex:1;min-width:0}
+.entry .title-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.entry .title{font-weight:600;color:#f0f6fc;font-size:14px}
+.entry .badge{font-size:11px;padding:1px 6px;border-radius:10px;font-weight:600}
+.entry .badge.shared{background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb66}
+.entry .badge.private{background:#30363d;color:#8b949e}
+.entry .badge.project{background:#8957e533;color:#bc8cff;border:1px solid #8957e566}
+.entry .badge.state-hot{background:#23863633;color:#3fb950}
+.entry .badge.state-raw{background:#30363d;color:#8b949e}
+.entry .badge.state-archived{background:#da363333;color:#f85149}
+.entry .content{font-size:13px;color:#8b949e;line-height:1.5;max-height:60px;overflow:hidden}
+.entry .meta{font-size:11px;color:#484f58;margin-top:6px;display:flex;gap:16px}
+.entry .actions{display:flex;gap:6px;flex-shrink:0}
+.entry .actions button{padding:4px 10px;font-size:12px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer}
+.entry .actions button:hover{background:#30363d}
+.entry .actions button.pin-btn{color:#d2991d}
+.pagination{display:flex;justify-content:center;gap:8px;padding:12px 20px;border-top:1px solid #30363d}
+.pagination button{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:13px}
+.pagination button:hover{background:#30363d}
+.pagination button.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.pagination span{color:#8b949e;font-size:13px;padding:6px 8px}
+.modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center}
+.modal-bg.open{display:flex}
+.modal{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:500px;max-height:80vh;overflow-y:auto}
+.modal h3{color:#f0f6fc;margin-bottom:16px;font-size:16px}
+.modal label{font-size:12px;color:#8b949e;display:block;margin-bottom:4px;margin-top:10px}
+.modal input,.modal textarea,.modal select{width:100%;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit}
+.modal textarea{min-height:100px;resize:vertical}
+.modal .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.modal button{padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+.modal button.primary{background:#238636;border:1px solid #238636;color:#fff}
+.modal button.primary:hover{background:#2ea043}
+.modal button.cancel{background:#21262d;border:1px solid #30363d;color:#c9d1d9}
+.loading{text-align:center;padding:40px;color:#8b949e}
+.empty{text-align:center;padding:40px;color:#484f58;font-size:14px}
+.toast{position:fixed;bottom:20px;right:20px;background:#238636;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:200;display:none}
+.toast.error{background:#da3633}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div>
+    <h2>Hermes Memory</h2>
+    <div style="font-size:11px;color:#484f58" id="last-dreaming">--</div>
+  </div>
+  <div>
+    <label>Agent</label>
+    <select id="filter-agent">
+      <option value="">All</option>
+    </select>
+  </div>
+  <div>
+    <label>Scope</label>
+    <select id="filter-scope">
+      <option value="">All</option>
+      <option value="private">Private</option>
+      <option value="shared">Shared</option>
+      <option value="project">Project</option>
+    </select>
+  </div>
+  <div>
+    <label>State</label>
+    <select id="filter-state">
+      <option value="">All</option>
+      <option value="raw">Raw</option>
+      <option value="promoted">Promoted</option>
+      <option value="hot">Hot</option>
+      <option value="archived">Archived</option>
+    </select>
+  </div>
+  <div>
+    <label>Search</label>
+    <input type="text" id="filter-query" placeholder="Search content...">
+  </div>
+  <button onclick="applyFilters()">Search</button>
+  <div style="border-top:1px solid #30363d;padding-top:12px">
+    <div class="stat" id="stat-total">Total: --</div>
+    <div class="stat" id="stat-scope">--</div>
+    <div class="stat" id="stat-conflicts">--</div>
+  </div>
+  <button class="danger" onclick="runDreaming()" style="margin-top:8px">Run Dreaming</button>
+</aside>
+
+<main class="main">
+  <div class="toolbar">
+    <span class="title">Memories</span>
+    <span class="spacer"></span>
+    <button onclick="showNewModal()">+ New</button>
+  </div>
+  <div class="entry-list" id="entry-list">
+    <div class="loading">Loading...</div>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<!-- New/Edit Modal -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h3 id="modal-title">New Memory</h3>
+    <input type="hidden" id="modal-id">
+    <label>Title</label><input type="text" id="modal-title-input" maxlength="200">
+    <label>Content</label><textarea id="modal-content" maxlength="10000"></textarea>
+    <label>Tags (comma separated)</label><input type="text" id="modal-tags">
+    <label>Scope</label>
+    <select id="modal-scope">
+      <option value="private">Private</option>
+      <option value="shared">Shared</option>
+      <option value="project">Project</option>
+    </select>
+    <div class="btn-row">
+      <button class="cancel" onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentPage = 1;
+let currentFilters = {};
+
+async function api(url, method='GET', body=null) {
+  const opts = {method, headers:{'Content-Type':'application/json'}};
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(url, opts);
+  if (!resp.ok) {
+    const err = await resp.json().catch(()=>({error:'Request failed'}));
+    throw new Error(err.error || 'Request failed');
+  }
+  return resp.json();
+}
+
+function buildUrl(path, params={}) {
+  const qs = new URLSearchParams();
+  for (const [k,v] of Object.entries(params)) {
+    if (v) qs.set(k,v);
+  }
+  return path + (qs.toString() ? '?'+qs.toString() : '');
+}
+
+async function loadEntries() {
+  const list = document.getElementById('entry-list');
+  list.innerHTML = '<div class="loading">Loading...</div>';
+
+  const params = {
+    page: currentPage,
+    limit: 20,
+    agent: document.getElementById('filter-agent').value,
+    scope: document.getElementById('filter-scope').value,
+    state: document.getElementById('filter-state').value,
+    q: document.getElementById('filter-query').value,
+  };
+  currentFilters = params;
+
+  try {
+    const data = await api(buildUrl('/api/entries', params));
+    renderEntries(data);
+  } catch(e) {
+    list.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+function renderEntries(data) {
+  const list = document.getElementById('entry-list');
+  if (!data.entries || data.entries.length === 0) {
+    list.innerHTML = '<div class="empty">No entries found</div>';
+  } else {
+    list.innerHTML = data.entries.map(e => `
+      <div class="entry${e.is_pinned?' pinned':''}">
+        <div class="pin-icon">${e.is_pinned?'📌':''}</div>
+        <div class="body">
+          <div class="title-row">
+            <span class="title">${esc(e.title||'(no title)')}</span>
+            <span class="badge ${e.scope}">${e.scope}</span>
+            <span class="badge state-${e.state}">${e.state}</span>
+            ${e.owner_agent ? `<span style="font-size:11px;color:#484f58">[${esc(e.owner_agent)}]</span>` : ''}
+          </div>
+          <div class="content">${esc((e.content||'').substring(0,200))}</div>
+          <div class="meta">
+            <span>score: ${(e.score||0).toFixed(2)}</span>
+            <span>access: ${e.access_count||0}</span>
+            <span>updated: ${(e.updated_at||'').substring(0,16)}</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button onclick="editEntry(${e.id})">Edit</button>
+          ${e.is_pinned
+            ? `<button class="pin-btn" onclick="unpinEntry(${e.id})">Unpin</button>`
+            : `<button class="pin-btn" onclick="pinEntry(${e.id})">Pin</button>`}
+          ${e.scope==='private'
+            ? `<button onclick="shareEntry(${e.id})">Share</button>`
+            : `<button onclick="unshareEntry(${e.id})">Unshare</button>`}
+          <button style="color:#f85149" onclick="archiveEntry(${e.id})">Archive</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Pagination
+  const pag = document.getElementById('pagination');
+  if (data.pages > 1) {
+    let html = '';
+    if (currentPage > 1) html += `<button onclick="goPage(${currentPage-1})">Prev</button>`;
+    html += `<span>Page ${data.page} / ${data.pages} (${data.total} entries)</span>`;
+    if (currentPage < data.pages) html += `<button onclick="goPage(${currentPage+1})">Next</button>`;
+    pag.innerHTML = html;
+  } else {
+    pag.innerHTML = `<span>${data.total} entries</span>`;
+  }
+}
+
+function goPage(p) { currentPage = p; loadEntries(); }
+function applyFilters() { currentPage = 1; loadEntries(); }
+
+async function loadStats() {
+  try {
+    const stats = await api('/api/stats');
+    document.getElementById('stat-total').textContent = `Total: ${stats.total} (pinned: ${stats.pinned})`;
+    const byScope = stats.by_scope||{};
+    document.getElementById('stat-scope').textContent = `private:${byScope.private||0} shared:${byScope.shared||0} project:${byScope.project||0}`;
+    const conflicts = stats.open_conflicts||0;
+    const confEl = document.getElementById('stat-conflicts');
+    confEl.textContent = conflicts > 0 ? `Conflicts: ${conflicts}` : '';
+    if (conflicts > 0) confEl.style.color = '#f85149';
+    document.getElementById('last-dreaming').textContent = stats.last_dreaming
+      ? `Last dreaming: ${stats.last_dreaming.substring(0,16)}`
+      : 'Not yet dreamed';
+
+    // Populate agent filter
+    const sel = document.getElementById('filter-agent');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All</option>';
+    for (const agent of Object.keys(stats.by_agent||{})) {
+      sel.innerHTML += `<option value="${esc(agent)}">${esc(agent)} (${stats.by_agent[agent]})</option>`;
+    }
+    sel.value = current;
+  } catch(e) {}
+}
+
+async function pinEntry(id) { await api(`/api/entries/${id}/pin`, 'POST'); toast('Pinned'); loadEntries(); }
+async function unpinEntry(id) { await api(`/api/entries/${id}/unpin`, 'POST'); toast('Unpinned'); loadEntries(); }
+async function shareEntry(id) { await api(`/api/entries/${id}/share`, 'POST'); toast('Shared'); loadEntries(); }
+async function unshareEntry(id) { await api(`/api/entries/${id}/unshare`, 'POST'); toast('Unshared'); loadEntries(); }
+async function archiveEntry(id) {
+  if (!confirm('Archive this entry?')) return;
+  await api(`/api/entries/${id}/archive`, 'POST');
+  toast('Archived');
+  loadEntries();
+}
+
+function showNewModal() {
+  document.getElementById('modal-title').textContent = 'New Memory';
+  document.getElementById('modal-id').value = '';
+  document.getElementById('modal-title-input').value = '';
+  document.getElementById('modal-content').value = '';
+  document.getElementById('modal-tags').value = '';
+  document.getElementById('modal-scope').value = 'private';
+  document.getElementById('modal-bg').classList.add('open');
+}
+
+async function editEntry(id) {
+  try {
+    const entry = await api(`/api/entries/${id}`);
+    document.getElementById('modal-title').textContent = 'Edit Memory';
+    document.getElementById('modal-id').value = entry.id;
+    document.getElementById('modal-title-input').value = entry.title||'';
+    document.getElementById('modal-content').value = entry.content||'';
+    document.getElementById('modal-tags').value = (entry.tags||[]).join(', ');
+    document.getElementById('modal-scope').value = entry.scope||'private';
+    document.getElementById('modal-bg').classList.add('open');
+  } catch(e) { toast('Failed to load entry', true); }
+}
+
+function closeModal() {
+  document.getElementById('modal-bg').classList.remove('open');
+}
+
+async function saveEntry() {
+  const id = document.getElementById('modal-id').value;
+  const data = {
+    title: document.getElementById('modal-title-input').value,
+    content: document.getElementById('modal-content').value,
+    tags: document.getElementById('modal-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
+    scope: document.getElementById('modal-scope').value,
+  };
+
+  try {
+    if (id) {
+      await api(`/api/entries/${id}`, 'PUT', data);
+      toast('Updated');
+    } else {
+      await api('/api/entries', 'POST', data);
+      toast('Created');
+    }
+    closeModal();
+    loadEntries();
+    loadStats();
+  } catch(e) { toast(e.message, true); }
+}
+
+async function runDreaming() {
+  if (!confirm('Run dreaming with dry_run=false? This will modify entries.')) return;
+  try {
+    const result = await api('/api/dreaming', 'POST', {dry_run: false});
+    toast(`Dreaming done: promoted=${result.promoted?.length||0} demoted=${result.demoted?.length||0} archived=${result.archived?.length||0}`);
+    loadEntries();
+    loadStats();
+  } catch(e) { toast(e.message, true); }
+}
+
+function toast(msg, isError=false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast' + (isError?' error':'');
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.getElementById('modal-bg').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+document.getElementById('filter-query').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') applyFilters();
+});
+
+loadEntries();
+loadStats();
+</script>
+</body>
+</html>

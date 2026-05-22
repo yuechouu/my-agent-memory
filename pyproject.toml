@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-memory-v2"
+version = "2.0.0"
+description = "Multi-agent shared memory system — SQLite + FTS5 + vector search"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlite-vec>=0.1.9",
+]
+
+[project.scripts]
+hermes-memory = "hermes_memory_v2.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hermes_memory_v2 = ["static/*"]
