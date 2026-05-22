@@ -179,7 +179,7 @@ function Header({ stats }) {
 function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts }) {
   const applyFilter = (updates) => {
     setFilters(f => ({ ...f, ...updates }));
-    setTimeout(onSearch, 0);
+    onSearch(updates);
   };
   return (
     <aside className="sidebar">
@@ -462,10 +462,11 @@ function App() {
   const [showAuditLog, setShowAuditLog] = useState(false);
   const [auditLog, setAuditLog] = useState([]);
 
-  const loadEntries = useCallback(async (page = 1) => {
+  const loadEntries = useCallback(async (page = 1, filterOverrides = {}) => {
     setLoading(true);
     try {
-      const params = { page, limit: 10, sort: sort.by, order: sort.order, ...filters };
+      const merged = { ...filters, ...filterOverrides };
+      const params = { page, limit: 10, sort: sort.by, order: sort.order, ...merged };
       const result = await api('/api/entries' + buildQuery(params));
       setData(result);
     } catch (e) {
@@ -473,7 +474,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [filters, toast]);
+  }, [filters, sort, toast]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -483,7 +484,7 @@ function App() {
 
   useEffect(() => { loadEntries(1); loadStats(); }, []);
 
-  const handleSearch = () => loadEntries(1);
+  const handleSearch = (overrides = {}) => loadEntries(1, overrides);
 
   /* ── Actions ── */
   const handleSave = async (id, body) => {
