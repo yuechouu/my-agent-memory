@@ -120,6 +120,18 @@ CREATE TABLE IF NOT EXISTS dreaming_log (
     details         TEXT
 );
 
+-- Audit log — tracks every write operation per entry
+CREATE TABLE IF NOT EXISTS memory_audit_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id        INTEGER NOT NULL,
+    action          TEXT NOT NULL,       -- create/update/archive/delete/pin/unpin/share/unshare/promote/demote/purge
+    agent_id        TEXT,                -- who performed the action
+    old_state       TEXT,                -- previous state (for state-change actions)
+    new_state       TEXT,                -- resulting state
+    details         TEXT,                -- JSON: extra context (title snapshot, etc.)
+    created_at      TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_entries_owner ON memory_entries(owner_agent);
 CREATE INDEX IF NOT EXISTS idx_entries_scope ON memory_entries(scope);
@@ -130,6 +142,10 @@ CREATE INDEX IF NOT EXISTS idx_entries_access ON memory_entries(access_count DES
 CREATE INDEX IF NOT EXISTS idx_entries_checksum ON memory_entries(checksum);
 CREATE INDEX IF NOT EXISTS idx_entries_pinned ON memory_entries(is_pinned);
 CREATE INDEX IF NOT EXISTS idx_conflicts_status ON memory_conflicts(status);
+CREATE INDEX IF NOT EXISTS idx_audit_entry ON memory_audit_log(entry_id);
+CREATE INDEX IF NOT EXISTS idx_audit_agent ON memory_audit_log(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON memory_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit_log(created_at DESC);
 """
 
 
@@ -191,7 +207,8 @@ class Database:
 
     def insert(self, content: str, title: str = "", tags: list = None,
                source: str = "manual", owner_agent: str = "noor",
-               scope: str = "private", project: str = None) -> dict:
+               scope: str = "private", project: str = None,
+               audit_agent: str = "") -> dict:
         """Insert a new memory entry. Returns the new row as dict.
 
         Deduplication: same checksum + same owner → update access_count, return existing.
@@ -228,9 +245,13 @@ class Database:
             (content, title, tag_str, source, ck, owner_agent, scope, project),
         )
         self.commit()
-        return _enrich_row(
+        result = _enrich_row(
             self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (cursor.lastrowid,))
         )
+        if audit_agent:
+            self.log_audit(result["id"], "create", audit_agent, new_state="raw",
+                          details={"title": title, "scope": scope})
+        return result
 
     def get(self, entry_id: int) -> Optional[dict]:
         """Get a single entry by ID. Updates access_count and last_access_ts."""
@@ -273,7 +294,7 @@ class Database:
             self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,))
         )
 
-    def archive(self, entry_id: int) -> Optional[dict]:
+    def archive(self, entry_id: int, audit_agent: str = "") -> Optional[dict]:
         """Soft-delete: set state='archived', archived_at=now."""
         row = self.fetchone("SELECT id FROM memory_entries WHERE id = ? AND deleted_at IS NULL", (entry_id,))
         if not row:
@@ -285,9 +306,12 @@ class Database:
             (entry_id,),
         )
         self.commit()
-        return _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
+        result = _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
+        if audit_agent:
+            self.log_audit(entry_id, "archive", audit_agent, new_state="archived")
+        return result
 
-    def delete(self, entry_id: int) -> bool:
+    def delete(self, entry_id: int, audit_agent: str = "") -> bool:
         """Hard-delete: set state='deleted', deleted_at=now. Only for archived entries."""
         row = self.fetchone(
             "SELECT id, state FROM memory_entries WHERE id = ? AND deleted_at IS NULL",
@@ -302,9 +326,11 @@ class Database:
             (entry_id,),
         )
         self.commit()
+        if audit_agent:
+            self.log_audit(entry_id, "delete", audit_agent, new_state="deleted")
         return True
 
-    def set_state(self, entry_id: int, state: str) -> Optional[dict]:
+    def set_state(self, entry_id: int, state: str, audit_agent: str = "") -> Optional[dict]:
         """Directly set lifecycle state (used by dreaming engine)."""
         valid_states = ("raw", "promoted", "hot", "archived", "deleted")
         if state not in valid_states:
@@ -314,42 +340,52 @@ class Database:
             (state, entry_id),
         )
         self.commit()
+        if audit_agent:
+            self.log_audit(entry_id, state, audit_agent, new_state=state)
         return _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
 
     # ── Pin ─────────────────────────────────────────────────
 
-    def pin(self, entry_id: int) -> Optional[dict]:
+    def pin(self, entry_id: int, audit_agent: str = "") -> Optional[dict]:
         row = self.fetchone("SELECT id FROM memory_entries WHERE id = ? AND deleted_at IS NULL", (entry_id,))
         if not row:
             return None
         self.execute("UPDATE memory_entries SET is_pinned = 1, updated_at = datetime('now') WHERE id = ?", (entry_id,))
         self.commit()
+        if audit_agent:
+            self.log_audit(entry_id, "pin", audit_agent)
         return _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
 
-    def unpin(self, entry_id: int) -> Optional[dict]:
+    def unpin(self, entry_id: int, audit_agent: str = "") -> Optional[dict]:
         row = self.fetchone("SELECT id FROM memory_entries WHERE id = ? AND deleted_at IS NULL", (entry_id,))
         if not row:
             return None
         self.execute("UPDATE memory_entries SET is_pinned = 0, updated_at = datetime('now') WHERE id = ?", (entry_id,))
         self.commit()
+        if audit_agent:
+            self.log_audit(entry_id, "unpin", audit_agent)
         return _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
 
     # ── Scope ────────────────────────────────────────────────
 
-    def share(self, entry_id: int) -> Optional[dict]:
+    def share(self, entry_id: int, audit_agent: str = "") -> Optional[dict]:
         row = self.fetchone("SELECT id FROM memory_entries WHERE id = ? AND deleted_at IS NULL", (entry_id,))
         if not row:
             return None
         self.execute("UPDATE memory_entries SET scope = 'shared', updated_at = datetime('now') WHERE id = ?", (entry_id,))
         self.commit()
+        if audit_agent:
+            self.log_audit(entry_id, "share", audit_agent)
         return _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
 
-    def unshare(self, entry_id: int) -> Optional[dict]:
+    def unshare(self, entry_id: int, audit_agent: str = "") -> Optional[dict]:
         row = self.fetchone("SELECT id FROM memory_entries WHERE id = ? AND deleted_at IS NULL", (entry_id,))
         if not row:
             return None
         self.execute("UPDATE memory_entries SET scope = 'private', updated_at = datetime('now') WHERE id = ?", (entry_id,))
         self.commit()
+        if audit_agent:
+            self.log_audit(entry_id, "unshare", audit_agent)
         return _enrich_row(self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)))
 
     # ── Embedding ────────────────────────────────────────────
@@ -679,6 +715,50 @@ class Database:
         rows = self.fetchall(
             "SELECT * FROM dreaming_log ORDER BY id DESC LIMIT ?",
             (limit,),
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["details"] = json.loads(d.get("details", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["details"] = {}
+            result.append(d)
+        return result
+
+    # ── Audit Log ────────────────────────────────────────────
+
+    def log_audit(self, entry_id: int, action: str, agent_id: str = "",
+                  old_state: str = "", new_state: str = "", details: dict = None):
+        """Record an audit trail entry for a write operation."""
+        self.execute(
+            """INSERT INTO memory_audit_log (entry_id, action, agent_id, old_state, new_state, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                entry_id, action, agent_id, old_state, new_state,
+                json.dumps(details or {}, ensure_ascii=False),
+            ),
+        )
+        self.commit()
+
+    def get_audit_log(self, entry_id: int = None, action: str = None,
+                      agent_id: str = None, limit: int = 50) -> list[dict]:
+        """Query audit log with optional filters."""
+        where = ["1=1"]
+        params = []
+        if entry_id:
+            where.append("entry_id = ?")
+            params.append(entry_id)
+        if action:
+            where.append("action = ?")
+            params.append(action)
+        if agent_id:
+            where.append("agent_id = ?")
+            params.append(agent_id)
+
+        rows = self.fetchall(
+            f"SELECT * FROM memory_audit_log WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT ?",
+            tuple(params) + (limit,),
         )
         result = []
         for r in rows:

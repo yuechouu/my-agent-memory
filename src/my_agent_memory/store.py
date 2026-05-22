@@ -121,6 +121,7 @@ class MultiAgentStore:
             owner_agent=self.agent_id,
             scope=scope,
             project=project,
+            audit_agent=self.agent_id,
         )
 
         # Async embedding generation
@@ -139,32 +140,32 @@ class MultiAgentStore:
 
     def archive(self, entry_id: int) -> Optional[dict]:
         """Soft-delete an entry (mark as archived)."""
-        return self.db.archive(entry_id)
+        return self.db.archive(entry_id, audit_agent=self.agent_id)
 
     def delete(self, entry_id: int) -> bool:
         """Hard-delete an entry (only if already archived)."""
-        return self.db.delete(entry_id)
+        return self.db.delete(entry_id, audit_agent=self.agent_id)
 
     # ── Pin ──────────────────────────────────────────────────
 
     def pin(self, entry_id: int) -> Optional[dict]:
-        return self.db.pin(entry_id)
+        return self.db.pin(entry_id, audit_agent=self.agent_id)
 
     def unpin(self, entry_id: int) -> Optional[dict]:
-        return self.db.unpin(entry_id)
+        return self.db.unpin(entry_id, audit_agent=self.agent_id)
 
     # ── Share ────────────────────────────────────────────────
 
     def share(self, entry_id: int) -> Optional[dict]:
         """Change scope from private to shared."""
-        result = self.db.share(entry_id)
+        result = self.db.share(entry_id, audit_agent=self.agent_id)
         if result and self.hot_layer:
             self.hot_layer.rebuild_all()
         return result
 
     def unshare(self, entry_id: int) -> Optional[dict]:
         """Change scope from shared to private (owner only)."""
-        result = self.db.unshare(entry_id)
+        result = self.db.unshare(entry_id, audit_agent=self.agent_id)
         if result and self.hot_layer:
             self.hot_layer.rebuild_all()
         return result

@@ -455,6 +455,8 @@ function App() {
   const [sort, setSort] = useState({ by: '', order: 'desc' });
   const [showDreamLog, setShowDreamLog] = useState(false);
   const [dreamLog, setDreamLog] = useState([]);
+  const [showAuditLog, setShowAuditLog] = useState(false);
+  const [auditLog, setAuditLog] = useState([]);
 
   const loadEntries = useCallback(async (page = 1) => {
     setLoading(true);
@@ -610,6 +612,14 @@ function App() {
     } catch (e) { toast(e.message, true); }
   };
 
+  const loadAuditLog = async () => {
+    try {
+      const log = await api('/api/audit-log');
+      setAuditLog(log || []);
+      setShowAuditLog(true);
+    } catch (e) { toast(e.message, true); }
+  };
+
   return (
     <div>
       <Header stats={stats} />
@@ -639,6 +649,7 @@ function App() {
               <option value="title:asc">Title A-Z</option>
             </select>
             <button className="btn" onClick={loadDreamLog}>DREAM LOG</button>
+            <button className="btn" onClick={loadAuditLog}>AUDIT LOG</button>
             <button className="btn" onClick={() => setShowNew(true)}>+ NEW</button>
           </div>
 
@@ -736,6 +747,35 @@ function App() {
             </div>
             <div className="btn-row">
               <button className="cancel" onClick={() => setShowDreamLog(false)}>CLOSE</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAuditLog && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowAuditLog(false)}>
+          <div className="modal" style={{width:680,maxWidth:'90vw'}}>
+            <h3>AUDIT LOG</h3>
+            <div className="dream-log">
+              {auditLog.length === 0 ? (
+                <div style={{color:'#447744',padding:20,textAlign:'center'}}>No operations recorded yet.</div>
+              ) : (
+                auditLog.map(a => (
+                  <div key={a.id} className="log-row">
+                    <div className="log-time">{a.created_at}</div>
+                    <div className="log-stats">
+                      <span style={{color:'#00ff41',textTransform:'uppercase'}}>{a.action}</span>
+                      <span>#{a.entry_id}</span>
+                      {a.agent_id && <span>[{a.agent_id}]</span>}
+                      {a.old_state && <span style={{color:'#6a9a6a'}}>{a.old_state} →</span>}
+                      {a.new_state && <span style={{color:'#a0e0a0'}}>{a.new_state}</span>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="btn-row">
+              <button className="cancel" onClick={() => setShowAuditLog(false)}>CLOSE</button>
             </div>
           </div>
         </div>

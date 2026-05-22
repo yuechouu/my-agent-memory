@@ -57,6 +57,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_json(self.store.stats())
         elif path == "/api/dreaming-log":
             self._handle_json(self.store.db.get_dreaming_log(limit=int(params.get("limit", 20))))
+        elif path == "/api/audit-log":
+            self._handle_json(self.store.db.get_audit_log(
+                entry_id=int(params["entry_id"]) if params.get("entry_id") else None,
+                action=params.get("action"),
+                agent_id=params.get("agent"),
+                limit=int(params.get("limit", 50)),
+            ))
         else:
             self._error(404, "Not found")
 
