@@ -15,7 +15,7 @@
 
 import { execSync } from 'node:child_process';
 
-const CLI = 'hermes-memory';
+const CLI = 'my-agent-memory';
 const DB_PATH = 'E:/hermes/hermes-data/memories/memory_v2.db';
 const AGENT_ID = 'hanako';
 const BASE_ARGS = `--db-path "${DB_PATH}"`;

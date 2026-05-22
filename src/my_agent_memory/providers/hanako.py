@@ -5,7 +5,7 @@ Configured via a JSON file in HERMES_HOME/providers/.
 
 Config format:
 {
-  "module": "hermes_memory_v2.providers.hanako",
+  "module": "my_agent_memory.providers.hanako",
   "class": "HanakoProvider",
   "agent_id": "hanako",
   "db_path": "E:/hermes/hermes-data/memories/memory_v2.db"
@@ -15,14 +15,14 @@ Config format:
 import os
 from pathlib import Path
 
-from hermes_memory_v2.provider import MemoryProvider
+from my_agent_memory.provider import MemoryProvider
 
 
 class HanakoProvider(MemoryProvider):
     """v2 memory backend for Hanako — hybrid search + hot layer injection."""
 
     def __init__(self, config: dict):
-        from hermes_memory_v2.store import MultiAgentStore
+        from my_agent_memory.store import MultiAgentStore
 
         self.config = config
         self.agent_id = config.get("agent_id", "hanako")
@@ -39,7 +39,7 @@ class HanakoProvider(MemoryProvider):
     def store(self):
         """Lazy init the MultiAgentStore."""
         if self._store is None:
-            from hermes_memory_v2.store import MultiAgentStore
+            from my_agent_memory.store import MultiAgentStore
             self._store = MultiAgentStore(
                 db_path=self._store_config["db_path"],
                 agent_id=self._store_config["agent_id"],

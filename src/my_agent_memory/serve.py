@@ -1,7 +1,7 @@
 """Web management dashboard server — lightweight HTTP server.
 
 Usage:
-  hermes-memory serve --port 8765
+  my-agent-memory serve --port 8765
 
 Binds to 127.0.0.1 only (localhost). No authentication.
 """
@@ -13,7 +13,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from pathlib import Path
 
-from hermes_memory_v2.store import MultiAgentStore
+from my_agent_memory.store import MultiAgentStore
 
 
 def _json_safe(obj):

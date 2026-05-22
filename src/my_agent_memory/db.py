@@ -1,4 +1,4 @@
-"""SQLite + FTS5 + sqlite-vec database layer for Hermes Memory v2.
+"""SQLite + FTS5 + sqlite-vec database layer for My Agent Memory.
 
 Multi-agent memory store with:
   - FTS5 full-text search (unicode61 tokenizer, CJK LIKE fallback)

@@ -1,6 +1,6 @@
 """v1 compatibility smoke test for noor.
 
-Run this AFTER installing hermes-memory-v2 and setting HERMES_AGENT_ID=noor.
+Run this AFTER installing my-agent-memory and setting HERMES_AGENT_ID=noor.
 
 This verifies that:
 1. The v2 Store class has the same API surface as v1
@@ -19,7 +19,7 @@ import traceback
 os.environ["HERMES_AGENT_ID"] = "noor"
 
 print("=" * 60)
-print(" Hermes Memory v2 — V1 Compatibility Test")
+print(" My Agent Memory — V1 Compatibility Test")
 print("=" * 60)
 
 passed = 0
@@ -50,10 +50,10 @@ def check_warn(name, condition, detail=""):
 # ── Step 1: Import ──
 print("\n[1] Import check")
 try:
-    from hermes_memory_v2 import Store, MultiAgentStore
-    check("from hermes_memory_v2 import Store", True)
+    from my_agent_memory import Store, MultiAgentStore
+    check("from my_agent_memory import Store", True)
 except ImportError as e:
-    check("from hermes_memory_v2 import Store", False, str(e))
+    check("from my_agent_memory import Store", False, str(e))
     sys.exit(1)
 
 try:

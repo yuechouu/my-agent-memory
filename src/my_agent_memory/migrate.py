@@ -44,7 +44,7 @@ def migrate_from_v1(
         v2_db_path = str(v1_path.parent / "memory_v2.db")
 
     import sqlite3
-    from hermes_memory_v2.db import Database
+    from my_agent_memory.db import Database
 
     report = {
         "dry_run": dry_run,

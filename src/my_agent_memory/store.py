@@ -1,7 +1,7 @@
 """MultiAgentStore — top-level API for all memory operations.
 
 Usage:
-    from hermes_memory_v2 import MultiAgentStore
+    from my_agent_memory import MultiAgentStore
 
     store = MultiAgentStore(agent_id="noor")
     store.save("fact", title="Title")
@@ -13,13 +13,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from hermes_memory_v2.db import Database
-from hermes_memory_v2.search import HybridSearch
-from hermes_memory_v2.dreaming import DreamingEngine
-from hermes_memory_v2.conflicts import ConflictResolver
-from hermes_memory_v2.hot_layer import HotLayer
-from hermes_memory_v2.validate import validate_sync
-from hermes_memory_v2.embed import EmbeddingClient
+from my_agent_memory.db import Database
+from my_agent_memory.search import HybridSearch
+from my_agent_memory.dreaming import DreamingEngine
+from my_agent_memory.conflicts import ConflictResolver
+from my_agent_memory.hot_layer import HotLayer
+from my_agent_memory.validate import validate_sync
+from my_agent_memory.embed import EmbeddingClient
 
 
 class MultiAgentStore:
@@ -271,7 +271,7 @@ class MultiAgentStore:
         # Try LLM consolidation
         llm_failed = True
         try:
-            from hermes_memory_v2.llm import (
+            from my_agent_memory.llm import (
                 LLMClient, build_consolidate_messages, parse_consolidate_response,
             )
             llm = LLMClient()
@@ -420,15 +420,15 @@ class MultiAgentStore:
 
 # ── V1-compatible Store class ────────────────────────────────
 #
-# Installed via pip as 'hermes-memory-v2', but noor imports
-# 'from hermes_memory import Store'. v2 provides this compatibility
+# Installed via pip as 'my-agent-memory', but noor imports
+# 'from my_agent_memory import Store'. v2 provides this compatibility
 # shim so noor's code doesn't need to change.
 
 class Store(MultiAgentStore):
     """V1-compatible Store for drop-in replacement.
 
     Usage (identical to v1):
-        from hermes_memory import Store
+        from my_agent_memory import Store
         store = Store()
         store.search("query")
         store.save("fact", title="title")

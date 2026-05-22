@@ -1,30 +1,30 @@
-"""Hermes Memory v2 CLI — human and agent command-line interface.
+"""My Agent Memory CLI — human and agent command-line interface.
 
 Usage:
-  hermes-memory search <query> [--limit N] [--tags t1,t2] [--scope shared|private] [--agent <id>]
-  hermes-memory save <content> [--title "..."] [--tags t1,t2] [--scope shared] [--project <name>]
-  hermes-memory get <id>
-  hermes-memory update <id> [--content "..."] [--title "..."] [--tags t1,t2]
-  hermes-memory pin <id>
-  hermes-memory unpin <id>
-  hermes-memory share <id>
-  hermes-memory unshare <id>
-  hermes-memory archive <id>
-  hermes-memory delete <id>
-  hermes-memory hybrid <query> [--limit N] [--scope shared]
-  hermes-memory status
-  hermes-memory dream [--execute] [--promote-threshold N] [--demote-threshold N]
-  hermes-memory consolidate --ids 1,2,3
-  hermes-memory conflicts [--resolve <id> --strategy merge|keep_both|last_write_wins]
-  hermes-memory rebuild
-  hermes-memory rebuild-hot
-  hermes-memory embed-pending [--limit N]
-  hermes-memory migrate --v1-db <path> --v1-hot <dir> --agent <id> [--v2-db <path>] [--execute]
-  hermes-memory serve [--port N]
-  hermes-memory system-prompt [--agent <id>] [--max-chars N]
+  my-agent-memory search <query> [--limit N] [--tags t1,t2] [--scope shared|private] [--agent <id>]
+  my-agent-memory save <content> [--title "..."] [--tags t1,t2] [--scope shared] [--project <name>]
+  my-agent-memory get <id>
+  my-agent-memory update <id> [--content "..."] [--title "..."] [--tags t1,t2]
+  my-agent-memory pin <id>
+  my-agent-memory unpin <id>
+  my-agent-memory share <id>
+  my-agent-memory unshare <id>
+  my-agent-memory archive <id>
+  my-agent-memory delete <id>
+  my-agent-memory hybrid <query> [--limit N] [--scope shared]
+  my-agent-memory status
+  my-agent-memory dream [--execute] [--promote-threshold N] [--demote-threshold N]
+  my-agent-memory consolidate --ids 1,2,3
+  my-agent-memory conflicts [--resolve <id> --strategy merge|keep_both|last_write_wins]
+  my-agent-memory rebuild
+  my-agent-memory rebuild-hot
+  my-agent-memory embed-pending [--limit N]
+  my-agent-memory migrate --v1-db <path> --v1-hot <dir> --agent <id> [--v2-db <path>] [--execute]
+  my-agent-memory serve [--port N]
+  my-agent-memory system-prompt [--agent <id>] [--max-chars N]
 
 For agents (import):
-  from hermes_memory_v2 import MultiAgentStore
+  from my_agent_memory import MultiAgentStore
   store = MultiAgentStore(agent_id="noor")
   store.search("query")
   store.save("fact", title="Title", tags=["tag"])
@@ -35,7 +35,7 @@ import json
 import sys
 import os
 
-from hermes_memory_v2.store import MultiAgentStore
+from my_agent_memory.store import MultiAgentStore
 
 
 def _parse_tags(tag_str: str) -> list:
@@ -191,7 +191,7 @@ def _cmd_embed_pending(args):
 
 
 def _cmd_migrate(args):
-    from hermes_memory_v2.migrate import migrate_from_v1
+    from my_agent_memory.migrate import migrate_from_v1
     result = migrate_from_v1(
         v1_db_path=args.v1_db,
         v1_hot_dir=args.v1_hot,
@@ -203,7 +203,7 @@ def _cmd_migrate(args):
 
 
 def _cmd_serve(args):
-    from hermes_memory_v2.serve import run_server
+    from my_agent_memory.serve import run_server
     run_server(port=args.port or 8765, store_factory=_get_store)
 
 
@@ -220,8 +220,8 @@ def _cmd_system_prompt(args):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="hermes-memory",
-        description="Hermes Memory v2 — multi-agent memory system",
+        prog="my-agent-memory",
+        description="My Agent Memory — multi-agent memory system",
     )
     parser.add_argument("--db-path", default="", help="Path to memory_v2.db (default: $HERMES_HOME/memories/memory_v2.db)")
     sub = parser.add_subparsers(dest="command")

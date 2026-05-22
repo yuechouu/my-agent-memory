@@ -8,9 +8,9 @@ pre-filter, with optional LLM-based semantic contradiction checking.
 import logging
 from typing import Optional
 
-from hermes_memory_v2.db import _enrich_row
+from my_agent_memory.db import _enrich_row
 
-logger = logging.getLogger("hermes-memory-v2.conflicts")
+logger = logging.getLogger("my-agent-memory.conflicts")
 
 
 class ConflictResolver:

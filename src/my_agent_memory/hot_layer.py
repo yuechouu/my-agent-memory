@@ -139,7 +139,7 @@ class HotLayer:
 
     def _format_entry(self, entry: dict) -> str:
         """Format a single entry for the hot layer."""
-        from hermes_memory_v2.db import _enrich_row
+        from my_agent_memory.db import _enrich_row
         e = _enrich_row(entry) if not isinstance(entry.get("tags"), list) else entry
 
         pin_marker = "📌 " if e.get("is_pinned") else ""
@@ -157,7 +157,7 @@ class HotLayer:
 
     def _format_memory_md(self, agent_id: str, entries: list[dict]) -> str:
         """Format the full MEMORY.md file content."""
-        from hermes_memory_v2.db import _enrich_row
+        from my_agent_memory.db import _enrich_row
 
         updated = datetime.now().strftime("%Y-%m-%d %H:%M")
         if agent_id == "shared":

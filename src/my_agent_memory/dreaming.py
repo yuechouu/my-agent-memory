@@ -16,9 +16,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from hermes_memory_v2.scoring import compute_scores_for_entries
+from my_agent_memory.scoring import compute_scores_for_entries
 
-logger = logging.getLogger("hermes-memory-v2.dreaming")
+logger = logging.getLogger("my-agent-memory.dreaming")
 
 
 class DreamingEngine:
@@ -225,7 +225,7 @@ class DreamingEngine:
         if len(shared_entries) < 2:
             return 0
 
-        from hermes_memory_v2.db import _enrich_row, blob_to_floats
+        from my_agent_memory.db import _enrich_row, blob_to_floats
 
         entries = [_enrich_row(r) for r in shared_entries]
         conflict_count = 0
