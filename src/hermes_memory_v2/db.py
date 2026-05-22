@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     last_access_ts  TEXT,
     score           REAL DEFAULT 0.0,
 
-    -- Vector (2048-dim float32 blob from Qwen3-Embedding-8B)
+    -- Vector (4096-dim float32 blob from Qwen3-Embedding-8B)
     embedding       BLOB,
     embedding_model TEXT,
 
@@ -160,7 +160,7 @@ class Database:
             sqlite_vec.load(self.conn)
             self.conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
-                    embedding float[2048]
+                    embedding float[4096]
                 )
             """)
             self.conn.commit()
@@ -480,18 +480,17 @@ class Database:
                 SELECT v.rowid AS id, v.distance
                 FROM memory_vec v
                 WHERE v.embedding MATCH ? AND v.rowid IN ({placeholders})
-                  AND k = ?
                 ORDER BY v.distance
                 LIMIT ?
-            """, [struct_blob] + candidate_ids + [limit, limit])
+            """, [struct_blob] + candidate_ids + [limit])
         else:
             rows = self.fetchall("""
                 SELECT v.rowid AS id, v.distance
                 FROM memory_vec v
-                WHERE v.embedding MATCH ? AND k = ?
+                WHERE v.embedding MATCH ?
                 ORDER BY v.distance
                 LIMIT ?
-            """, [struct_blob, limit, limit])
+            """, [struct_blob, limit])
 
         return [(r["id"], r["distance"]) for r in rows]
 

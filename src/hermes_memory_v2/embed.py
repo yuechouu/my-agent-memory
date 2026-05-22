@@ -16,7 +16,7 @@ from typing import Optional
 
 DEFAULT_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_MODEL = "Qwen/Qwen3-Embedding-8B"
-DEFAULT_DIMENSIONS = 2048
+DEFAULT_DIMENSIONS = 4096  # Qwen3-Embedding-8B
 DEFAULT_BATCH_SIZE = 10
 DEFAULT_TIMEOUT = 30  # seconds
 

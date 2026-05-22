@@ -85,6 +85,9 @@ class MultiAgentStore:
             import json
             try:
                 data = json.loads(auth_path.read_text())
+                sf = data.get("siliconflow", {})
+                if isinstance(sf, dict):
+                    return sf.get("key", "")
                 return data.get("siliconflow_key", "") or data.get("api_key", "")
             except Exception:
                 pass
@@ -244,30 +247,58 @@ class MultiAgentStore:
     def consolidate(self, entry_ids: list[int]) -> Optional[dict]:
         """Merge multiple entries into one via LLM consolidation.
 
-        Placeholder: v2 doesn't yet implement LLM consolidation.
-        For now, marks entries as 'promoted' so they appear in hot layer.
+        Uses DeepSeek Chat to intelligently merge overlapping memories,
+        resolve minor contradictions, and keep unique facts.
+        Originals are marked as superseded_by the merged result.
+        Falls back to simple concatenation if LLM call fails.
         """
-        if not entry_ids:
+        if not entry_ids or len(entry_ids) < 2:
             return None
 
-        first = self.db.get(entry_ids[0])
-        if not first:
-            return None
-
-        # Simple concatenation as placeholder
-        contents = []
+        entries = []
         for eid in entry_ids:
             entry = self.db.get(eid)
             if entry:
-                contents.append(f"## {entry.get('title', '')}\n{entry.get('content', '')}")
+                entries.append(entry)
 
-        merged_content = "\n\n".join(contents)
-        merged_title = first.get("title", "Merged")
+        if len(entries) < 2:
+            return None
 
+        title = "Merged"
+        content = ""
+        source = "consolidated"
+
+        # Try LLM consolidation
+        llm_failed = True
+        try:
+            from hermes_memory_v2.llm import (
+                LLMClient, build_consolidate_messages, parse_consolidate_response,
+            )
+            llm = LLMClient()
+            messages = build_consolidate_messages(entries)
+            response = llm.chat(messages, temperature=0.3, max_tokens=800)
+            parsed = parse_consolidate_response(response)
+            if parsed.get("content"):
+                title = parsed["title"] or title
+                content = parsed["content"]
+                source = "consolidated"
+                llm_failed = False
+        except Exception as e:
+            pass
+
+        if llm_failed:
+            # Fallback to simple concatenation
+            contents = []
+            for e in entries:
+                contents.append(f"## {e.get('title', '')}\n{e.get('content', '')}")
+            content = "\n\n".join(contents)
+            title = entries[0].get("title", "Merged")
+
+        first = entries[0]
         result = self.db.insert(
-            content=merged_content,
-            title=merged_title,
-            source="consolidated",
+            content=content,
+            title=title,
+            source=source,
             owner_agent=first.get("owner_agent", self.agent_id),
             scope=first.get("scope", "private"),
         )
