@@ -177,7 +177,7 @@ def run_server(port: int = 8765, store_factory=None):
     if store_factory:
         DashboardHandler.store = store_factory()
     else:
-        DashboardHandler.store = MultiAgentStore()
+        DashboardHandler.store = MultiAgentStore(agent_id="yuechou")
 
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Hermes Memory Dashboard: http://127.0.0.1:{port}")
