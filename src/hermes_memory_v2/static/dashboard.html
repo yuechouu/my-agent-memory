@@ -3,366 +3,492 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hermes Memory v2</title>
+<title>HERMES-MEMORY v2</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;height:100vh}
-.sidebar{width:240px;background:#161b22;border-right:1px solid #30363d;padding:16px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
-.sidebar h2{font-size:18px;color:#58a6ff;margin-bottom:4px}
-.sidebar label{font-size:12px;color:#8b949e;display:block;margin-bottom:4px}
-.sidebar select,.sidebar input,.sidebar button{width:100%;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:13px}
-.sidebar button{background:#238636;border-color:#238636;color:#fff;cursor:pointer;font-weight:600}
-.sidebar button:hover{background:#2ea043}
-.sidebar button.danger{background:#da3633;border-color:#da3633}
-.sidebar button.danger:hover{background:#f85149}
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.toolbar{display:flex;align-items:center;gap:12px;padding:12px 20px;background:#161b22;border-bottom:1px solid #30363d}
-.toolbar .title{font-size:16px;font-weight:600;color:#f0f6fc}
+body{background:#0b0e11;color:#c0ffc0;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:13.5px;line-height:1.5;padding:28px;min-height:100vh}
+/* ── Header ── */
+.header{margin-bottom:28px;padding-bottom:14px;border-bottom:1px solid #1a3a1a}
+.header h1{font-size:20px;color:#00ff41;font-weight:600;letter-spacing:1px}
+.header .sub{font-size:12px;color:#58a858;margin-top:4px}
+/* ── Layout ── */
+.layout{display:flex;gap:28px;min-height:calc(100vh - 120px)}
+.sidebar{width:210px;flex-shrink:0}
+.sidebar .section{margin-bottom:22px}
+.sidebar .label{font-size:11px;color:#58a858;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+.sidebar select,.sidebar input{width:100%;background:#12161a;border:1px solid #1a3a1a;color:#a0e0a0;padding:7px 10px;font-family:inherit;font-size:13px;outline:none;border-radius:0}
+.sidebar select:focus,.sidebar input:focus{border-color:#00ff41;background:#1a221a}
+.sidebar .btn{width:100%;background:#1a2a1a;border:1px solid #2a4a2a;color:#80e080;padding:9px;font-family:inherit;font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:1.5px}
+.sidebar .btn:hover{background:#1a3a1a;border-color:#00ff41;color:#00ff41}
+.sidebar .btn.danger{border-color:#5a2a2a;color:#e08080;background:#1a1414}
+.sidebar .btn.danger:hover{border-color:#ff4444;color:#ff4444;background:#1a1a1a}
+.sidebar .divider{height:1px;background:#1a2a1a;margin:18px 0}
+.sidebar .stat{font-size:12px;color:#58a858;margin:5px 0}
+.sidebar .stat .warn{color:#ff8844}
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column}
+.toolbar{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #1a3a1a}
+.toolbar .title{font-size:15px;color:#00ff41;font-weight:600}
 .toolbar .spacer{flex:1}
-.toolbar .stat{font-size:12px;color:#8b949e}
-.toolbar button{padding:6px 14px;background:#238636;border:1px solid #238636;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
-.toolbar button:hover{background:#2ea043}
-.toolbar button.danger{background:#da3633;border-color:#da3633}
-.toolbar button.danger:hover{background:#f85149}
-.entry-list{flex:1;overflow-y:auto;padding:12px 20px}
-.entry{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start}
-.entry.pinned{border-color:#d2991d;background:#1a1708}
-.entry .pin-icon{color:#d2991d;font-size:16px;flex-shrink:0;margin-top:2px}
+.toolbar .btn{padding:7px 18px;background:#1a2a1a;border:1px solid #2a4a2a;color:#80e080;font-family:inherit;font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:1px}
+.toolbar .btn:hover{background:#1a3a1a;border-color:#00ff41;color:#00ff41}
+/* ── Entry cards ── */
+.entry{border:1px solid #1a2a1a;padding:14px 18px;margin-bottom:8px;display:flex;gap:14px;align-items:flex-start;transition:all .12s}
+.entry:hover{border-color:#2a4a2a;background:#0d1418}
+.entry.pinned{border-color:#4a3a0a;border-left:3px solid #ffaa00;background:#0d0d08}
+.entry.pinned:hover{border-color:#6a5a0a;background:#111108}
+.entry .pin-dot{font-size:15px;flex-shrink:0;margin-top:2px;color:#ffaa00}
+.entry .bullet{font-size:15px;flex-shrink:0;margin-top:2px;color:#2a4a2a}
 .entry .body{flex:1;min-width:0}
-.entry .title-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.entry .title{font-weight:600;color:#f0f6fc;font-size:14px}
-.entry .badge{font-size:11px;padding:1px 6px;border-radius:10px;font-weight:600}
-.entry .badge.shared{background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb66}
-.entry .badge.private{background:#30363d;color:#8b949e}
-.entry .badge.project{background:#8957e533;color:#bc8cff;border:1px solid #8957e566}
-.entry .badge.state-hot{background:#23863633;color:#3fb950}
-.entry .badge.state-raw{background:#30363d;color:#8b949e}
-.entry .badge.state-archived{background:#da363333;color:#f85149}
-.entry .content{font-size:13px;color:#8b949e;line-height:1.5;max-height:60px;overflow:hidden}
-.entry .meta{font-size:11px;color:#484f58;margin-top:6px;display:flex;gap:16px}
-.entry .actions{display:flex;gap:6px;flex-shrink:0}
-.entry .actions button{padding:4px 10px;font-size:12px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer}
-.entry .actions button:hover{background:#30363d}
-.entry .actions button.pin-btn{color:#d2991d}
-.pagination{display:flex;justify-content:center;gap:8px;padding:12px 20px;border-top:1px solid #30363d}
-.pagination button{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:13px}
-.pagination button:hover{background:#30363d}
-.pagination button.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
-.pagination span{color:#8b949e;font-size:13px;padding:6px 8px}
-.modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center}
-.modal-bg.open{display:flex}
-.modal{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:500px;max-height:80vh;overflow-y:auto}
-.modal h3{color:#f0f6fc;margin-bottom:16px;font-size:16px}
-.modal label{font-size:12px;color:#8b949e;display:block;margin-bottom:4px;margin-top:10px}
-.modal input,.modal textarea,.modal select{width:100%;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit}
-.modal textarea{min-height:100px;resize:vertical}
-.modal .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
-.modal button{padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
-.modal button.primary{background:#238636;border:1px solid #238636;color:#fff}
-.modal button.primary:hover{background:#2ea043}
-.modal button.cancel{background:#21262d;border:1px solid #30363d;color:#c9d1d9}
-.loading{text-align:center;padding:40px;color:#8b949e}
-.empty{text-align:center;padding:40px;color:#484f58;font-size:14px}
-.toast{position:fixed;bottom:20px;right:20px;background:#238636;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:200;display:none}
-.toast.error{background:#da3633}
+.entry .row{display:flex;align-items:center;gap:10px;margin-bottom:5px;flex-wrap:wrap}
+.entry .title{font-weight:700;color:#00ff41;font-size:14px}
+.entry .badge{font-size:10px;padding:1px 7px;border:1px solid;font-family:inherit;border-radius:0;text-transform:uppercase;letter-spacing:.5px}
+.entry .badge.shared{border-color:#00aa44;color:#00aa44}
+.entry .badge.private{border-color:#447744;color:#88aa88}
+.entry .badge.project{border-color:#6644aa;color:#9988cc}
+.entry .badge.hot{border-color:#ffaa00;color:#ffaa00}
+.entry .badge.promoted{border-color:#88aa00;color:#aacc00}
+.entry .badge.raw{border-color:#447744;color:#88aa88}
+.entry .badge.archived{border-color:#884444;color:#cc8888}
+.entry .badge.agent{font-size:10px;color:#447744;border:none;padding:0}
+.entry .content{color:#6a9a6a;max-height:42px;overflow:hidden;font-size:13px;line-height:1.6}
+.entry .meta{font-size:11px;color:#448844;margin-top:6px;display:flex;gap:20px;flex-wrap:wrap}
+.entry .meta span{white-space:nowrap}
+.entry .actions{display:flex;gap:4px;flex-shrink:0}
+.entry .actions button{background:transparent;border:1px solid #2a3a2a;color:#88aa88;padding:5px 12px;font-family:inherit;font-size:11px;cursor:pointer;border-radius:0;text-transform:uppercase;letter-spacing:.5px}
+.entry .actions button:hover{border-color:#00ff41;color:#00ff41;background:#1a2a1a}
+.entry .actions button.pin{color:#cc8800;border-color:#3a2a0a}
+.entry .actions button.pin:hover{color:#ffaa00;border-color:#ffaa00}
+.entry .actions button.danger{color:#aa4444;border-color:#3a1a1a}
+.entry .actions button.danger:hover{color:#ff4444;border-color:#ff4444;background:#1a1414}
+/* ── Empty & loading ── */
+.loading{text-align:center;padding:60px;color:#447744;font-size:13px}
+.empty{text-align:center;padding:60px;color:#447744;font-size:13px}
+/* ── Pagination ── */
+.pagination{display:flex;justify-content:center;gap:6px;margin-top:18px;padding-top:14px;border-top:1px solid #1a2a1a}
+.pagination button{background:#12161a;border:1px solid #2a3a2a;color:#80c080;padding:7px 16px;font-family:inherit;font-size:12px;cursor:pointer;border-radius:0}
+.pagination button:hover{border-color:#00ff41;color:#00ff41}
+.pagination button.active{background:#1a2a1a;border-color:#00ff41;color:#00ff41}
+.pagination button:disabled{opacity:.3;cursor:default}
+.pagination span{color:#58a858;padding:7px 10px;font-size:12px}
+/* ── Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{background:#0d1418;border:1px solid #2a4a2a;padding:28px;width:560px;max-height:85vh;overflow-y:auto}
+.modal h3{color:#00ff41;font-size:16px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid #1a2a1a}
+.modal .field{margin-bottom:16px}
+.modal .field label{display:block;font-size:11px;color:#58a858;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+.modal .field input,.modal .field textarea,.modal .field select{width:100%;background:#12161a;border:1px solid #1a3a1a;color:#a0e0a0;padding:8px 12px;font-family:inherit;font-size:13px;outline:none;border-radius:0}
+.modal .field textarea{min-height:120px;resize:vertical}
+.modal .field input:focus,.modal .field textarea:focus,.modal .field select:focus{border-color:#00ff41;background:#1a221a}
+.modal .btn-row{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid #1a2a1a}
+.modal .btn-row button{padding:8px 22px;font-family:inherit;font-size:12px;cursor:pointer;border-radius:0;text-transform:uppercase;letter-spacing:1px}
+.modal .btn-row .primary{background:#1a3a1a;border:1px solid #00ff41;color:#00ff41}
+.modal .btn-row .primary:hover{background:#1a5a1a}
+.modal .btn-row .cancel{background:transparent;border:1px solid #2a3a2a;color:#88aa88}
+.modal .btn-row .cancel:hover{border-color:#00ff41;color:#00ff41}
+/* ── Toast ── */
+.toast-wrap{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.toast{background:#1a2a1a;border:1px solid #00ff41;color:#00ff41;padding:12px 20px;font-size:12px;font-family:inherit;animation:fadeIn .2s}
+.toast.err{background:#1a1414;border-color:#ff4444;color:#ff4444}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
+<div id="root"></div>
 
-<aside class="sidebar">
-  <div>
-    <h2>Hermes Memory</h2>
-    <div style="font-size:11px;color:#484f58" id="last-dreaming">--</div>
-  </div>
-  <div>
-    <label>Agent</label>
-    <select id="filter-agent">
-      <option value="">All</option>
-    </select>
-  </div>
-  <div>
-    <label>Scope</label>
-    <select id="filter-scope">
-      <option value="">All</option>
-      <option value="private">Private</option>
-      <option value="shared">Shared</option>
-      <option value="project">Project</option>
-    </select>
-  </div>
-  <div>
-    <label>State</label>
-    <select id="filter-state">
-      <option value="">All</option>
-      <option value="raw">Raw</option>
-      <option value="promoted">Promoted</option>
-      <option value="hot">Hot</option>
-      <option value="archived">Archived</option>
-    </select>
-  </div>
-  <div>
-    <label>Search</label>
-    <input type="text" id="filter-query" placeholder="Search content...">
-  </div>
-  <button onclick="applyFilters()">Search</button>
-  <div style="border-top:1px solid #30363d;padding-top:12px">
-    <div class="stat" id="stat-total">Total: --</div>
-    <div class="stat" id="stat-scope">--</div>
-    <div class="stat" id="stat-conflicts">--</div>
-  </div>
-  <button class="danger" onclick="runDreaming()" style="margin-top:8px">Run Dreaming</button>
-</aside>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
 
-<main class="main">
-  <div class="toolbar">
-    <span class="title">Memories</span>
-    <span class="spacer"></span>
-    <button onclick="showNewModal()">+ New</button>
-  </div>
-  <div class="entry-list" id="entry-list">
-    <div class="loading">Loading...</div>
-  </div>
-  <div class="pagination" id="pagination"></div>
-</main>
-
-<div id="toast" class="toast"></div>
-
-<!-- New/Edit Modal -->
-<div class="modal-bg" id="modal-bg">
-  <div class="modal">
-    <h3 id="modal-title">New Memory</h3>
-    <input type="hidden" id="modal-id">
-    <label>Title</label><input type="text" id="modal-title-input" maxlength="200">
-    <label>Content</label><textarea id="modal-content" maxlength="10000"></textarea>
-    <label>Tags (comma separated)</label><input type="text" id="modal-tags">
-    <label>Scope</label>
-    <select id="modal-scope">
-      <option value="private">Private</option>
-      <option value="shared">Shared</option>
-      <option value="project">Project</option>
-    </select>
-    <div class="btn-row">
-      <button class="cancel" onclick="closeModal()">Cancel</button>
-      <button class="primary" onclick="saveEntry()">Save</button>
-    </div>
-  </div>
-</div>
-
-<script>
-let currentPage = 1;
-let currentFilters = {};
-
-async function api(url, method='GET', body=null) {
-  const opts = {method, headers:{'Content-Type':'application/json'}};
+/* ── API ────────────────────────────────────────── */
+async function api(path, { method = 'GET', body } = {}) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  const resp = await fetch(url, opts);
-  if (!resp.ok) {
-    const err = await resp.json().catch(()=>({error:'Request failed'}));
-    throw new Error(err.error || 'Request failed');
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(e.error || `Request failed (${res.status})`);
   }
-  return resp.json();
+  return res.json();
 }
 
-function buildUrl(path, params={}) {
-  const qs = new URLSearchParams();
-  for (const [k,v] of Object.entries(params)) {
-    if (v) qs.set(k,v);
-  }
-  return path + (qs.toString() ? '?'+qs.toString() : '');
+function buildQuery(params) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) p.set(k, String(v));
+  const qs = p.toString();
+  return qs ? '?' + qs : '';
 }
 
-async function loadEntries() {
-  const list = document.getElementById('entry-list');
-  list.innerHTML = '<div class="loading">Loading...</div>';
+/* ── Toast context ───────────────────────────────── */
+const ToastCtx = React.createContext(null);
+function useToast() { return React.useContext(ToastCtx); }
 
-  const params = {
-    page: currentPage,
-    limit: 20,
-    agent: document.getElementById('filter-agent').value,
-    scope: document.getElementById('filter-scope').value,
-    state: document.getElementById('filter-state').value,
-    q: document.getElementById('filter-query').value,
-  };
-  currentFilters = params;
-
-  try {
-    const data = await api(buildUrl('/api/entries', params));
-    renderEntries(data);
-  } catch(e) {
-    list.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
-  }
+/* ── Toast provider ──────────────────────────────── */
+function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([]);
+  const add = useCallback((msg, isErr = false) => {
+    const id = Date.now();
+    setToasts(t => [...t, { id, msg, isErr }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
+  }, []);
+  return (
+    <ToastCtx.Provider value={add}>
+      {children}
+      <div className="toast-wrap">
+        {toasts.map(t => <div key={t.id} className={`toast${t.isErr ? ' err' : ''}`}>{t.msg}</div>)}
+      </div>
+    </ToastCtx.Provider>
+  );
 }
 
-function renderEntries(data) {
-  const list = document.getElementById('entry-list');
-  if (!data.entries || data.entries.length === 0) {
-    list.innerHTML = '<div class="empty">No entries found</div>';
-  } else {
-    list.innerHTML = data.entries.map(e => `
-      <div class="entry${e.is_pinned?' pinned':''}">
-        <div class="pin-icon">${e.is_pinned?'📌':''}</div>
-        <div class="body">
-          <div class="title-row">
-            <span class="title">${esc(e.title||'(no title)')}</span>
-            <span class="badge ${e.scope}">${e.scope}</span>
-            <span class="badge state-${e.state}">${e.state}</span>
-            ${e.owner_agent ? `<span style="font-size:11px;color:#484f58">[${esc(e.owner_agent)}]</span>` : ''}
+/* ── Header ──────────────────────────────────────── */
+function Header({ stats }) {
+  return (
+    <div className="header">
+      <h1>HERMES-MEMORY<span style={{ color: '#447744' }}>::</span>v2.0.0</h1>
+      <div className="sub">
+        db: memory_v2.db · wal: on
+        {stats && stats.last_dreaming
+          ? ` · last dreaming: ${stats.last_dreaming.substring(0, 16)}`
+          : ' · not yet dreamed'}
+      </div>
+    </div>
+  );
+}
+
+/* ── Sidebar ─────────────────────────────────────── */
+function Sidebar({ filters, setFilters, stats, onSearch, onDreaming }) {
+  return (
+    <aside className="sidebar">
+      <div className="section">
+        <div className="label">AGENT</div>
+        <select value={filters.agent || ''} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))}>
+          <option value="">* ALL</option>
+          {stats && stats.by_agent && Object.keys(stats.by_agent).map(a =>
+            <option key={a} value={a}>{a} ({stats.by_agent[a]})</option>
+          )}
+        </select>
+      </div>
+      <div className="section">
+        <div className="label">SCOPE</div>
+        <select value={filters.scope || ''} onChange={e => setFilters(f => ({ ...f, scope: e.target.value }))}>
+          <option value="">* ALL</option>
+          <option value="private">private</option>
+          <option value="shared">shared</option>
+          <option value="project">project</option>
+        </select>
+      </div>
+      <div className="section">
+        <div className="label">STATE</div>
+        <select value={filters.state || ''} onChange={e => setFilters(f => ({ ...f, state: e.target.value }))}>
+          <option value="">* ALL</option>
+          <option value="raw">raw</option>
+          <option value="promoted">promoted</option>
+          <option value="hot">hot</option>
+          <option value="archived">archived</option>
+        </select>
+      </div>
+      <div className="section">
+        <div className="label">SEARCH</div>
+        <input
+          type="text" placeholder="grep ..."
+          value={filters.q || ''}
+          onChange={e => setFilters(f => ({ ...f, q: e.target.value }))}
+          onKeyDown={e => e.key === 'Enter' && onSearch()}
+        />
+        <button className="btn" style={{ marginTop: 8 }} onClick={onSearch}>EXEC</button>
+      </div>
+      <div className="divider" />
+      {stats && (
+        <>
+          <div className="stat">TOTAL: <span style={{ color: '#a0e0a0' }}>{stats.total}</span></div>
+          <div className="stat">
+            HOT: <span style={{ color: '#a0e0a0' }}>{stats.by_state?.hot || 0}</span>
+            {' · '}RAW: <span style={{ color: '#a0e0a0' }}>{stats.by_state?.raw || 0}</span>
+            {' · '}COLD: <span style={{ color: '#a0e0a0' }}>{stats.by_state?.archived || 0}</span>
           </div>
-          <div class="content">${esc((e.content||'').substring(0,200))}</div>
-          <div class="meta">
-            <span>score: ${(e.score||0).toFixed(2)}</span>
-            <span>access: ${e.access_count||0}</span>
-            <span>updated: ${(e.updated_at||'').substring(0,16)}</span>
-          </div>
+          <div className="stat">PINNED: <span style={{ color: '#a0e0a0' }}>{stats.pinned || 0}</span></div>
+          {stats.open_conflicts > 0 && (
+            <div className="stat">CONFLICTS: <span className="warn">{stats.open_conflicts}</span></div>
+          )}
+        </>
+      )}
+      <div className="divider" />
+      <button className="btn danger" onClick={onDreaming}>RUN DREAMING</button>
+    </aside>
+  );
+}
+
+/* ── Entry Row ───────────────────────────────────── */
+function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive }) {
+  const p = entry.is_pinned;
+  const badge = (label, cls) => <span className={`badge ${cls}`}>{label}</span>;
+
+  return (
+    <div className={`entry${p ? ' pinned' : ''}`}>
+      <div className={p ? 'pin-dot' : 'bullet'}>{p ? '●' : '○'}</div>
+      <div className="body">
+        <div className="row">
+          <span className="title">{entry.title || '(untitled)'}</span>
+          {badge(entry.scope || 'private', entry.scope || 'private')}
+          {badge(entry.state || 'raw', entry.state || 'raw')}
+          <span className="badge agent">{entry.owner_agent || ''}</span>
         </div>
-        <div class="actions">
-          <button onclick="editEntry(${e.id})">Edit</button>
-          ${e.is_pinned
-            ? `<button class="pin-btn" onclick="unpinEntry(${e.id})">Unpin</button>`
-            : `<button class="pin-btn" onclick="pinEntry(${e.id})">Pin</button>`}
-          ${e.scope==='private'
-            ? `<button onclick="shareEntry(${e.id})">Share</button>`
-            : `<button onclick="unshareEntry(${e.id})">Unshare</button>`}
-          <button style="color:#f85149" onclick="archiveEntry(${e.id})">Archive</button>
+        <div className="content">{(entry.content || '').substring(0, 250)}</div>
+        <div className="meta">
+          <span>score: <span style={{ color: '#a0e0a0' }}>{(entry.score || 0).toFixed(2)}</span></span>
+          <span>access: <span style={{ color: '#a0e0a0' }}>{entry.access_count || 0}</span></span>
+          <span>updated: {(entry.updated_at || '').substring(0, 16)}</span>
         </div>
       </div>
-    `).join('');
-  }
-
-  // Pagination
-  const pag = document.getElementById('pagination');
-  if (data.pages > 1) {
-    let html = '';
-    if (currentPage > 1) html += `<button onclick="goPage(${currentPage-1})">Prev</button>`;
-    html += `<span>Page ${data.page} / ${data.pages} (${data.total} entries)</span>`;
-    if (currentPage < data.pages) html += `<button onclick="goPage(${currentPage+1})">Next</button>`;
-    pag.innerHTML = html;
-  } else {
-    pag.innerHTML = `<span>${data.total} entries</span>`;
-  }
+      <div className="actions">
+        <button onClick={() => onEdit(entry)}>EDIT</button>
+        {p
+          ? <button className="pin" onClick={() => onUnpin(entry.id)}>UNPIN</button>
+          : <button className="pin" onClick={() => onPin(entry.id)}>PIN</button>}
+        {entry.scope === 'private'
+          ? <button onClick={() => onShare(entry.id)}>SHARE</button>
+          : <button onClick={() => onUnshare(entry.id)}>UNSHARE</button>}
+        <button className="danger" onClick={() => onArchive(entry.id)}>ARCHIVE</button>
+      </div>
+    </div>
+  );
 }
 
-function goPage(p) { currentPage = p; loadEntries(); }
-function applyFilters() { currentPage = 1; loadEntries(); }
-
-async function loadStats() {
-  try {
-    const stats = await api('/api/stats');
-    document.getElementById('stat-total').textContent = `Total: ${stats.total} (pinned: ${stats.pinned})`;
-    const byScope = stats.by_scope||{};
-    document.getElementById('stat-scope').textContent = `private:${byScope.private||0} shared:${byScope.shared||0} project:${byScope.project||0}`;
-    const conflicts = stats.open_conflicts||0;
-    const confEl = document.getElementById('stat-conflicts');
-    confEl.textContent = conflicts > 0 ? `Conflicts: ${conflicts}` : '';
-    if (conflicts > 0) confEl.style.color = '#f85149';
-    document.getElementById('last-dreaming').textContent = stats.last_dreaming
-      ? `Last dreaming: ${stats.last_dreaming.substring(0,16)}`
-      : 'Not yet dreamed';
-
-    // Populate agent filter
-    const sel = document.getElementById('filter-agent');
-    const current = sel.value;
-    sel.innerHTML = '<option value="">All</option>';
-    for (const agent of Object.keys(stats.by_agent||{})) {
-      sel.innerHTML += `<option value="${esc(agent)}">${esc(agent)} (${stats.by_agent[agent]})</option>`;
-    }
-    sel.value = current;
-  } catch(e) {}
+/* ── Pagination ──────────────────────────────────── */
+function Pagination({ page, pages, total, onPage }) {
+  if (pages <= 1) return null;
+  return (
+    <div className="pagination">
+      <button disabled={page <= 1} onClick={() => onPage(page - 1)}>PREV</button>
+      {Array.from({ length: pages }, (_, i) => i + 1).map(p =>
+        <button key={p} className={p === page ? 'active' : ''} onClick={() => onPage(p)}>{p}</button>
+      )}
+      <button disabled={page >= pages} onClick={() => onPage(page + 1)}>NEXT</button>
+      <span>{total} entries</span>
+    </div>
+  );
 }
 
-async function pinEntry(id) { await api(`/api/entries/${id}/pin`, 'POST'); toast('Pinned'); loadEntries(); }
-async function unpinEntry(id) { await api(`/api/entries/${id}/unpin`, 'POST'); toast('Unpinned'); loadEntries(); }
-async function shareEntry(id) { await api(`/api/entries/${id}/share`, 'POST'); toast('Shared'); loadEntries(); }
-async function unshareEntry(id) { await api(`/api/entries/${id}/unshare`, 'POST'); toast('Unshared'); loadEntries(); }
-async function archiveEntry(id) {
-  if (!confirm('Archive this entry?')) return;
-  await api(`/api/entries/${id}/archive`, 'POST');
-  toast('Archived');
-  loadEntries();
-}
+/* ── Modal ───────────────────────────────────────── */
+function EntryModal({ entry, onClose, onSave }) {
+  const [title, setTitle] = useState(entry?.title || '');
+  const [content, setContent] = useState(entry?.content || '');
+  const [tags, setTags] = useState((entry?.tags || []).join(', '));
+  const [scope, setScope] = useState(entry?.scope || 'private');
+  const isEdit = !!entry;
 
-function showNewModal() {
-  document.getElementById('modal-title').textContent = 'New Memory';
-  document.getElementById('modal-id').value = '';
-  document.getElementById('modal-title-input').value = '';
-  document.getElementById('modal-content').value = '';
-  document.getElementById('modal-tags').value = '';
-  document.getElementById('modal-scope').value = 'private';
-  document.getElementById('modal-bg').classList.add('open');
-}
-
-async function editEntry(id) {
-  try {
-    const entry = await api(`/api/entries/${id}`);
-    document.getElementById('modal-title').textContent = 'Edit Memory';
-    document.getElementById('modal-id').value = entry.id;
-    document.getElementById('modal-title-input').value = entry.title||'';
-    document.getElementById('modal-content').value = entry.content||'';
-    document.getElementById('modal-tags').value = (entry.tags||[]).join(', ');
-    document.getElementById('modal-scope').value = entry.scope||'private';
-    document.getElementById('modal-bg').classList.add('open');
-  } catch(e) { toast('Failed to load entry', true); }
-}
-
-function closeModal() {
-  document.getElementById('modal-bg').classList.remove('open');
-}
-
-async function saveEntry() {
-  const id = document.getElementById('modal-id').value;
-  const data = {
-    title: document.getElementById('modal-title-input').value,
-    content: document.getElementById('modal-content').value,
-    tags: document.getElementById('modal-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
-    scope: document.getElementById('modal-scope').value,
+  const handleSave = () => {
+    const data = {
+      title, content,
+      tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+      scope,
+    };
+    onSave(isEdit ? entry.id : null, data);
   };
 
-  try {
-    if (id) {
-      await api(`/api/entries/${id}`, 'PUT', data);
-      toast('Updated');
-    } else {
-      await api('/api/entries', 'POST', data);
-      toast('Created');
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <h3>{isEdit ? 'EDIT ENTRY' : 'NEW ENTRY'}</h3>
+        <div className="field">
+          <label>Title</label>
+          <input type="text" value={title} onChange={e => setTitle(e.target.value)} maxLength="200" />
+        </div>
+        <div className="field">
+          <label>Content</label>
+          <textarea value={content} onChange={e => setContent(e.target.value)} maxLength="10000" />
+        </div>
+        <div className="field">
+          <label>Tags (comma separated)</label>
+          <input type="text" value={tags} onChange={e => setTags(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Scope</label>
+          <select value={scope} onChange={e => setScope(e.target.value)}>
+            <option value="private">private</option>
+            <option value="shared">shared</option>
+            <option value="project">project</option>
+          </select>
+        </div>
+        <div className="btn-row">
+          <button className="cancel" onClick={onClose}>CANCEL</button>
+          <button className="primary" onClick={handleSave}>{isEdit ? 'UPDATE' : 'CREATE'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Confirm dialog ──────────────────────────────── */
+function ConfirmDialog({ message, onConfirm, onCancel }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onCancel()}>
+      <div className="modal" style={{ width: 400 }}>
+        <h3>CONFIRM</h3>
+        <p style={{ color: '#6a9a6a', fontSize: 13, marginBottom: 20 }}>{message}</p>
+        <div className="btn-row">
+          <button className="cancel" onClick={onCancel}>CANCEL</button>
+          <button className="primary" style={{ background: '#1a1414', borderColor: '#ff4444', color: '#ff4444' }} onClick={onConfirm}>CONFIRM</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── App ─────────────────────────────────────────── */
+function App() {
+  const toast = useToast();
+  const [stats, setStats] = useState(null);
+  const [filters, setFilters] = useState({ agent: '', scope: '', state: '', q: '' });
+  const [data, setData] = useState({ entries: [], total: 0, page: 1, pages: 1 });
+  const [modalEntry, setModalEntry] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadEntries = useCallback(async (page = 1) => {
+    setLoading(true);
+    try {
+      const params = { page, limit: 20, ...filters };
+      const result = await api('/api/entries' + buildQuery(params));
+      setData(result);
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      setLoading(false);
     }
-    closeModal();
-    loadEntries();
-    loadStats();
-  } catch(e) { toast(e.message, true); }
+  }, [filters, toast]);
+
+  const loadStats = useCallback(async () => {
+    try {
+      setStats(await api('/api/stats'));
+    } catch (e) { /* best-effort */ }
+  }, []);
+
+  useEffect(() => { loadEntries(1); loadStats(); }, []);
+
+  const handleSearch = () => loadEntries(1);
+
+  /* ── Actions ── */
+  const handleSave = async (id, body) => {
+    try {
+      if (id) {
+        await api(`/api/entries/${id}`, { method: 'PUT', body });
+        toast('ENTRY UPDATED');
+      } else {
+        await api('/api/entries', { method: 'POST', body });
+        toast('ENTRY CREATED');
+      }
+      setModalEntry(null);
+      setShowNew(false);
+      loadEntries(data.page);
+      loadStats();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const handlePin = async (id) => {
+    try { await api(`/api/entries/${id}/pin`, { method: 'POST' }); toast('PINNED'); loadEntries(data.page); } catch (e) { toast(e.message, true); }
+  };
+  const handleUnpin = async (id) => {
+    try { await api(`/api/entries/${id}/unpin`, { method: 'POST' }); toast('UNPINNED'); loadEntries(data.page); } catch (e) { toast(e.message, true); }
+  };
+  const handleShare = async (id) => {
+    try { await api(`/api/entries/${id}/share`, { method: 'POST' }); toast('SHARED'); loadEntries(data.page); loadStats(); } catch (e) { toast(e.message, true); }
+  };
+  const handleUnshare = async (id) => {
+    try { await api(`/api/entries/${id}/unshare`, { method: 'POST' }); toast('UNSHARED'); loadEntries(data.page); loadStats(); } catch (e) { toast(e.message, true); }
+  };
+  const handleArchive = (id) => {
+    setConfirm({
+      message: 'Archive this entry? It will be hidden from search results.',
+      onConfirm: async () => {
+        try { await api(`/api/entries/${id}/archive`, { method: 'POST' }); toast('ARCHIVED'); loadEntries(data.page); loadStats(); } catch (e) { toast(e.message, true); }
+        setConfirm(null);
+      }
+    });
+  };
+
+  const handleDreaming = () => {
+    setConfirm({
+      message: 'Run dreaming with dry_run=false? This will modify entries based on scoring.',
+      onConfirm: async () => {
+        try {
+          const r = await api('/api/dreaming', { method: 'POST', body: { dry_run: false } });
+          toast(`DREAMING: promoted=${r.promoted?.length || 0} demoted=${r.demoted?.length || 0} archived=${r.archived?.length || 0}`);
+          loadEntries(data.page);
+          loadStats();
+        } catch (e) { toast(e.message, true); }
+        setConfirm(null);
+      }
+    });
+  };
+
+  return (
+    <div>
+      <Header stats={stats} />
+      <div className="layout">
+        <Sidebar
+          filters={filters} setFilters={setFilters}
+          stats={stats}
+          onSearch={handleSearch}
+          onDreaming={handleDreaming}
+        />
+        <main className="main">
+          <div className="toolbar">
+            <span className="title">RESULTS</span>
+            <span style={{ color: '#58a858', fontSize: 12 }}>{data.total} entries</span>
+            <span className="spacer" />
+            <button className="btn" onClick={() => setShowNew(true)}>+ NEW</button>
+          </div>
+
+          {loading ? (
+            <div className="loading">Loading...</div>
+          ) : data.entries.length === 0 ? (
+            <div className="empty">No entries found matching your filters.</div>
+          ) : (
+            data.entries.map(e => (
+              <EntryRow
+                key={e.id} entry={e}
+                onEdit={setModalEntry}
+                onPin={handlePin} onUnpin={handleUnpin}
+                onShare={handleShare} onUnshare={handleUnshare}
+                onArchive={handleArchive}
+              />
+            ))
+          )}
+
+          <Pagination
+            page={data.page} pages={data.pages} total={data.total}
+            onPage={p => loadEntries(p)}
+          />
+        </main>
+      </div>
+
+      {(modalEntry || showNew) && (
+        <EntryModal
+          entry={modalEntry}
+          onClose={() => { setModalEntry(null); setShowNew(false); }}
+          onSave={handleSave}
+        />
+      )}
+
+      {confirm && (
+        <ConfirmDialog
+          message={confirm.message}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+    </div>
+  );
 }
 
-async function runDreaming() {
-  if (!confirm('Run dreaming with dry_run=false? This will modify entries.')) return;
-  try {
-    const result = await api('/api/dreaming', 'POST', {dry_run: false});
-    toast(`Dreaming done: promoted=${result.promoted?.length||0} demoted=${result.demoted?.length||0} archived=${result.archived?.length||0}`);
-    loadEntries();
-    loadStats();
-  } catch(e) { toast(e.message, true); }
-}
-
-function toast(msg, isError=false) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'toast' + (isError?' error':'');
-  el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 3000);
-}
-
-function esc(s) {
-  if (!s) return '';
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-document.getElementById('modal-bg').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
-
-document.getElementById('filter-query').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') applyFilters();
-});
-
-loadEntries();
-loadStats();
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ToastProvider><App /></ToastProvider>
+);
 </script>
 </body>
 </html>
