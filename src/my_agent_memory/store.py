@@ -353,11 +353,13 @@ class MultiAgentStore:
     def list_entries(
         self, agent_id: str = None, scope: str = None, state: str = None,
         page: int = 1, limit: int = 20, query: str = None,
+        sort_by: str = "", sort_order: str = "desc",
     ) -> dict:
         """Paginated entry listing (for dashboard API)."""
         return self.db.list_entries(
             agent_id=agent_id, scope=scope, state=state,
             page=page, limit=limit, query=query,
+            sort_by=sort_by, sort_order=sort_order,
         )
 
     # ── Maintenance ──────────────────────────────────────────

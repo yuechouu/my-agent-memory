@@ -55,6 +55,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_json(self.store.get_conflicts("open"))
         elif path == "/api/stats":
             self._handle_json(self.store.stats())
+        elif path == "/api/dreaming-log":
+            self._handle_json(self.store.db.get_dreaming_log(limit=int(params.get("limit", 20))))
         else:
             self._error(404, "Not found")
 
@@ -120,6 +122,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             page=int(params.get("page", 1)),
             limit=int(params.get("limit", 20)),
             query=params.get("q"),
+            sort_by=params.get("sort", ""),
+            sort_order=params.get("order", "desc"),
         )
 
     def _handle_json(self, data):

@@ -94,6 +94,23 @@ body{background:#0b0e11;color:#c0ffc0;font-family:'Cascadia Code','Consolas','Co
 .toast{background:#1a2a1a;border:1px solid #00ff41;color:#00ff41;padding:12px 20px;font-size:12px;font-family:inherit;animation:fadeIn .2s}
 .toast.err{background:#1a1414;border-color:#ff4444;color:#ff4444}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* ── Bulk bar ── */
+.bulk-bar{position:sticky;bottom:0;background:#0d1418;border:1px solid #2a4a2a;padding:10px 18px;display:flex;align-items:center;gap:10px;margin-top:12px;z-index:10}
+.bulk-bar .count{color:#58a858;font-size:12px;margin-right:8px}
+.bulk-bar .count .num{color:#00ff41}
+.bulk-bar .spacer{flex:1}
+/* ── Dreaming log ── */
+.dream-log{max-height:300px;overflow-y:auto;margin-bottom:16px}
+.dream-log .log-row{border:1px solid #1a2a1a;padding:10px 14px;margin-bottom:6px}
+.dream-log .log-row .log-time{color:#00ff41;font-size:12px;margin-bottom:4px}
+.dream-log .log-row .log-stats{font-size:11px;color:#58a858}
+.dream-log .log-row .log-stats span{color:#a0e0a0;margin:0 8px}
+/* ── Sort ── */
+.sort-select{background:#12161a;border:1px solid #2a3a2a;color:#80c080;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;border-radius:0;text-transform:uppercase}
+.sort-select:focus{border-color:#00ff41;outline:none}
+/* ── Checkbox ── */
+.entry .cb{flex-shrink:0;margin-right:0}
+.entry .cb input{accent-color:#00ff41;cursor:pointer}
 </style>
 </head>
 <body>
@@ -224,13 +241,15 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts
 }
 
 /* ── Entry Row ───────────────────────────────────── */
-function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive, onDelete }) {
+function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive, onDelete, selected, onToggleSelect }) {
   const p = entry.is_pinned;
   const badge = (label, cls) => <span className={`badge ${cls}`}>{label}</span>;
 
   return (
     <div className={`entry${p ? ' pinned' : ''}`}>
-      <div className={p ? 'pin-dot' : 'bullet'}>{p ? '●' : '○'}</div>
+      <div className="cb">
+        <input type="checkbox" checked={selected} onChange={() => onToggleSelect(entry.id)} />
+      </div>
       <div className="body">
         <div className="row">
           <span className="title">{entry.title || '(untitled)'}</span>
@@ -432,11 +451,15 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [showConflicts, setShowConflicts] = useState(false);
   const [conflictsData, setConflictsData] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [sort, setSort] = useState({ by: '', order: 'desc' });
+  const [showDreamLog, setShowDreamLog] = useState(false);
+  const [dreamLog, setDreamLog] = useState([]);
 
   const loadEntries = useCallback(async (page = 1) => {
     setLoading(true);
     try {
-      const params = { page, limit: 20, ...filters };
+      const params = { page, limit: 20, sort: sort.by, order: sort.order, ...filters };
       const result = await api('/api/entries' + buildQuery(params));
       setData(result);
     } catch (e) {
@@ -544,6 +567,49 @@ function App() {
     } catch (e) { toast(e.message, true); }
   };
 
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === data.entries.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(data.entries.map(e => e.id)));
+    }
+  };
+
+  const bulkAction = async (action) => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    setConfirm({
+      message: `${action.toUpperCase()} ${ids.length} entries?`,
+      onConfirm: async () => {
+        try {
+          for (const id of ids) {
+            if (action === 'pin') await api(`/api/entries/${id}/pin`, { method: 'POST' });
+            else if (action === 'unpin') await api(`/api/entries/${id}/unpin`, { method: 'POST' });
+            else if (action === 'share') await api(`/api/entries/${id}/share`, { method: 'POST' });
+            else if (action === 'archive') await api(`/api/entries/${id}/archive`, { method: 'POST' });
+          }
+          toast(`${ids.length} ENTRIES ${action.toUpperCase()}ED`);
+          setSelectedIds(new Set());
+          loadEntries(data.page);
+          loadStats();
+        } catch (e) { toast(e.message, true); }
+        setConfirm(null);
+      }
+    });
+  };
+
+  const loadDreamLog = async () => {
+    try {
+      const log = await api('/api/dreaming-log');
+      setDreamLog(log || []);
+      setShowDreamLog(true);
+    } catch (e) { toast(e.message, true); }
+  };
+
   return (
     <div>
       <Header stats={stats} />
@@ -560,6 +626,19 @@ function App() {
             <span className="title">RESULTS</span>
             <span style={{ color: '#58a858', fontSize: 12 }}>{data.total} entries</span>
             <span className="spacer" />
+            <select className="sort-select" value={`${sort.by}:${sort.order}`} onChange={e => {
+              const [by, order] = e.target.value.split(':');
+              setSort({ by, order });
+              loadEntries(1);
+            }}>
+              <option value=":desc">Default</option>
+              <option value="score:desc">Score ↑</option>
+              <option value="score:asc">Score ↓</option>
+              <option value="access_count:desc">Access ↑</option>
+              <option value="updated_at:desc">Updated ↑</option>
+              <option value="title:asc">Title A-Z</option>
+            </select>
+            <button className="btn" onClick={loadDreamLog}>DREAM LOG</button>
             <button className="btn" onClick={() => setShowNew(true)}>+ NEW</button>
           </div>
 
@@ -568,22 +647,44 @@ function App() {
           ) : data.entries.length === 0 ? (
             <div className="empty">No entries found matching your filters.</div>
           ) : (
-            data.entries.map(e => (
-              <EntryRow
-                key={e.id} entry={e}
-                onEdit={setModalEntry}
-                onPin={handlePin} onUnpin={handleUnpin}
-                onShare={handleShare} onUnshare={handleUnshare}
-                onArchive={handleArchive}
-                onDelete={handleDelete}
-              />
-            ))
+            <>
+              <div className="entry" style={{background:'#0d1418',opacity:.7}}>
+                <div className="cb"><input type="checkbox" checked={selectedIds.size === data.entries.length && data.entries.length > 0} onChange={toggleAll} /></div>
+                <div style={{flex:1,color:'#58a858',fontSize:12}}>
+                  {selectedIds.size > 0 ? `${selectedIds.size} selected` : `${data.entries.length} entries — tick to select`}
+                </div>
+              </div>
+              {data.entries.map(e => (
+                <EntryRow
+                  key={e.id} entry={e}
+                  selected={selectedIds.has(e.id)}
+                  onToggleSelect={toggleSelect}
+                  onEdit={setModalEntry}
+                  onPin={handlePin} onUnpin={handleUnpin}
+                  onShare={handleShare} onUnshare={handleUnshare}
+                  onArchive={handleArchive}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </>
           )}
 
           <Pagination
             page={data.page} pages={data.pages} total={data.total}
             onPage={p => loadEntries(p)}
           />
+
+          {selectedIds.size > 0 && (
+            <div className="bulk-bar">
+              <span className="count"><span className="num">{selectedIds.size}</span> selected</span>
+              <button className="btn btn-sm" onClick={() => bulkAction('pin')}>PIN ALL</button>
+              <button className="btn btn-sm" onClick={() => bulkAction('unpin')}>UNPIN ALL</button>
+              <button className="btn btn-sm" onClick={() => bulkAction('share')}>SHARE ALL</button>
+              <button className="btn btn-sm danger" onClick={() => bulkAction('archive')}>ARCHIVE ALL</button>
+              <span className="spacer" />
+              <button className="btn btn-sm" onClick={() => setSelectedIds(new Set())}>CLEAR</button>
+            </div>
+          )}
         </main>
       </div>
 
@@ -609,6 +710,35 @@ function App() {
           onResolve={handleResolveConflict}
           onClose={() => setShowConflicts(false)}
         />
+      )}
+
+      {showDreamLog && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowDreamLog(false)}>
+          <div className="modal" style={{width:620,maxWidth:'90vw'}}>
+            <h3>DREAMING LOG</h3>
+            <div className="dream-log">
+              {dreamLog.length === 0 ? (
+                <div style={{color:'#447744',padding:20,textAlign:'center'}}>No dreaming runs recorded yet.</div>
+              ) : (
+                dreamLog.map(d => (
+                  <div key={d.id} className="log-row">
+                    <div className="log-time">{d.run_at}</div>
+                    <div className="log-stats">
+                      promote:<span>{d.promoted || (d.details?.promoted || 0)}</span>
+                      demote:<span>{d.demoted || (d.details?.demoted || 0)}</span>
+                      archive:<span>{d.archived || (d.details?.archived || 0)}</span>
+                      purge:<span>{d.purged || (d.details?.purged || 0)}</span>
+                      conflicts:<span>{d.conflicts_found || 0}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="btn-row">
+              <button className="cancel" onClick={() => setShowDreamLog(false)}>CLOSE</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

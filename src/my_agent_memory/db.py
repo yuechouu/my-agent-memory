@@ -674,6 +674,22 @@ class Database:
         )
         self.commit()
 
+    def get_dreaming_log(self, limit: int = 20) -> list[dict]:
+        """Get recent dreaming run records."""
+        rows = self.fetchall(
+            "SELECT * FROM dreaming_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["details"] = json.loads(d.get("details", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["details"] = {}
+            result.append(d)
+        return result
+
     # ── Stats ────────────────────────────────────────────────
 
     def stats(self) -> dict:
@@ -721,8 +737,9 @@ class Database:
         }
 
     def list_entries(self, agent_id: str = None, scope: str = None, state: str = None,
-                     page: int = 1, limit: int = 20, query: str = None) -> dict:
-        """Paginated entry listing with filters (for dashboard API)."""
+                     page: int = 1, limit: int = 20, query: str = None,
+                     sort_by: str = "", sort_order: str = "desc") -> dict:
+        """Paginated entry listing with filters and sort (for dashboard API)."""
         where = ["e.deleted_at IS NULL"]
         params = []
 
@@ -745,12 +762,24 @@ class Database:
         total_row = self.fetchone(f"SELECT COUNT(*) as n FROM memory_entries e WHERE {where_clause}", tuple(params))
         total = total_row["n"] if total_row else 0
 
+        # Sort
+        order = "e.is_pinned DESC, e.score DESC, e.updated_at DESC"
+        allowed_sorts = {
+            "score": "e.score", "access_count": "e.access_count",
+            "updated_at": "e.updated_at", "created_at": "e.created_at",
+            "title": "e.title",
+        }
+        if sort_by in allowed_sorts:
+            col = allowed_sorts[sort_by]
+            dir_sql = "ASC" if sort_order == "asc" else "DESC"
+            order = f"e.is_pinned DESC, {col} {dir_sql}"
+
         # Page
         offset = (page - 1) * limit
         rows = self.fetchall(
             f"""SELECT * FROM memory_entries e
                 WHERE {where_clause}
-                ORDER BY e.is_pinned DESC, e.score DESC, e.updated_at DESC
+                ORDER BY {order}
                 LIMIT ? OFFSET ?""",
             tuple(params) + (limit, offset),
         )
@@ -761,6 +790,8 @@ class Database:
             "page": page,
             "limit": limit,
             "pages": (total + limit - 1) // limit if total > 0 else 1,
+            "sort_by": sort_by,
+            "sort_order": sort_order,
         }
 
     # ── Maintenance ──────────────────────────────────────────
