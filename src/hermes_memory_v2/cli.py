@@ -42,6 +42,17 @@ def _parse_tags(tag_str: str) -> list:
     return [t.strip() for t in tag_str.split(",") if t.strip()]
 
 
+def _json_safe(obj):
+    """Strip bytes fields for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    elif isinstance(obj, bytes):
+        return None
+    return obj
+
+
 def _output(data, human: bool = False):
     if human and isinstance(data, list):
         for item in data:
@@ -67,40 +78,45 @@ def _output(data, human: bool = False):
         if data.get("last_dreaming"):
             print(f"Last dreaming: {data['last_dreaming']}")
     elif human and isinstance(data, dict):
-        print(json.dumps(data, indent=2, ensure_ascii=False))
+        print(json.dumps(_json_safe(data), indent=2, ensure_ascii=False))
     else:
-        print(json.dumps(data, ensure_ascii=False))
+        print(json.dumps(_json_safe(data), ensure_ascii=False))
 
 
-def _get_store() -> MultiAgentStore:
+def _get_store(db_path: str = "") -> MultiAgentStore:
     agent_id = os.getenv("HERMES_AGENT_ID", "")
-    return MultiAgentStore(agent_id=agent_id)
+    return MultiAgentStore(agent_id=agent_id, db_path=db_path)
 
 
 # ── Command handlers ────────────────────────────────────────
 
+def _get_store_from_args(args) -> MultiAgentStore:
+    db_path = getattr(args, 'db_path', '') or ""
+    return _get_store(db_path)
+
+
 def _cmd_search(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     tags = _parse_tags(args.tags) if args.tags else None
     _output(s.search(args.query, args.limit, args.offset, tags, scope=args.scope, agent_id=args.agent),
             human=getattr(args, "human", False))
 
 
 def _cmd_save(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     tags = _parse_tags(args.tags) if args.tags else None
     _output(s.save(args.content, args.title, tags, args.source or "manual", args.scope or "private", args.project),
             human=True)
 
 
 def _cmd_get(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     result = s.get(args.id)
     _output(result or {"error": f"Entry {args.id} not found"}, human=True)
 
 
 def _cmd_update(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     fields = {}
     if args.content is not None: fields["content"] = args.content
     if args.title is not None: fields["title"] = args.title
@@ -111,31 +127,31 @@ def _cmd_update(args):
     _output(result or {"error": f"Entry {args.id} not found"}, human=True)
 
 
-def _cmd_pin(args): _output(_get_store().pin(args.id), human=True)
-def _cmd_unpin(args): _output(_get_store().unpin(args.id), human=True)
-def _cmd_share(args): _output(_get_store().share(args.id), human=True)
-def _cmd_unshare(args): _output(_get_store().unshare(args.id), human=True)
-def _cmd_archive_cmd(args): _output(_get_store().archive(args.id), human=True)
+def _cmd_pin(args): _output(_get_store_from_args(args).pin(args.id), human=True)
+def _cmd_unpin(args): _output(_get_store_from_args(args).unpin(args.id), human=True)
+def _cmd_share(args): _output(_get_store_from_args(args).share(args.id), human=True)
+def _cmd_unshare(args): _output(_get_store_from_args(args).unshare(args.id), human=True)
+def _cmd_archive_cmd(args): _output(_get_store_from_args(args).archive(args.id), human=True)
 
 
 def _cmd_delete(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     success = s.delete(args.id)
     _output({"ok": success, "id": args.id}, human=True)
 
 
 def _cmd_hybrid(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     _output(s.hybrid_search(args.query, limit=args.limit, scope=args.scope, agent_id=args.agent),
             human=getattr(args, "human", False))
 
 
 def _cmd_status(args):
-    _output(_get_store().stats(), human=True)
+    _output(_get_store_from_args(args).stats(), human=True)
 
 
 def _cmd_dream(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     _output(s.dreaming(
         dry_run=not args.execute,
         promote_threshold=args.promote_threshold,
@@ -145,14 +161,14 @@ def _cmd_dream(args):
 
 
 def _cmd_consolidate(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     entry_ids = [int(x) for x in args.ids.split(",") if x.strip()]
     result = s.consolidate(entry_ids)
     _output(result or {"error": "No entries to consolidate"}, human=True)
 
 
 def _cmd_conflicts(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     if args.resolve:
         result = s.resolve_conflict(args.resolve, args.strategy or "dismiss")
         _output(result or {"error": f"Conflict {args.resolve} not found"}, human=True)
@@ -160,16 +176,16 @@ def _cmd_conflicts(args):
         _output(s.get_conflicts("open"), human=True)
 
 
-def _cmd_rebuild(args): _get_store().rebuild(); _output({"ok": True, "message": "FTS5 index rebuilt"})
+def _cmd_rebuild(args): _get_store_from_args(args).rebuild(); _output({"ok": True, "message": "FTS5 index rebuilt"})
 
 
 def _cmd_rebuild_hot(args):
-    _get_store().rebuild_hot_layer()
+    _get_store_from_args(args).rebuild_hot_layer()
     _output({"ok": True, "message": "Hot layer rebuilt"})
 
 
 def _cmd_embed_pending(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     count = s.embed_pending(limit=args.limit)
     _output({"ok": True, "embedded": count}, human=True)
 
@@ -192,7 +208,7 @@ def _cmd_serve(args):
 
 
 def _cmd_system_prompt(args):
-    s = _get_store()
+    s = _get_store_from_args(args)
     block = s.get_system_prompt_block(
         agent_id=args.agent or s.agent_id,
         max_chars=args.max_chars,
@@ -207,6 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="hermes-memory",
         description="Hermes Memory v2 — multi-agent memory system",
     )
+    parser.add_argument("--db-path", default="", help="Path to memory_v2.db (default: $HERMES_HOME/memories/memory_v2.db)")
     sub = parser.add_subparsers(dest="command")
 
     # search
