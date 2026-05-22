@@ -16,6 +16,17 @@ from pathlib import Path
 from hermes_memory_v2.store import MultiAgentStore
 
 
+def _json_safe(obj):
+    """Recursively convert bytes fields to None for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    elif isinstance(obj, bytes):
+        return None
+    return obj
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the memory dashboard."""
 
@@ -115,7 +126,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if data is None:
             self._error(404, "Not found")
             return
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        body = json.dumps(_json_safe(data), ensure_ascii=False).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", len(body))

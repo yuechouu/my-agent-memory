@@ -159,7 +159,7 @@ function Header({ stats }) {
 }
 
 /* ── Sidebar ─────────────────────────────────────── */
-function Sidebar({ filters, setFilters, stats, onSearch, onDreaming }) {
+function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts }) {
   return (
     <aside className="sidebar">
       <div className="section">
@@ -211,7 +211,9 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming }) {
           </div>
           <div className="stat">PINNED: <span style={{ color: '#a0e0a0' }}>{stats.pinned || 0}</span></div>
           {stats.open_conflicts > 0 && (
-            <div className="stat">CONFLICTS: <span className="warn">{stats.open_conflicts}</span></div>
+            <div className="stat clickable" onClick={onConflicts} style={{cursor:'pointer'}}>
+              CONFLICTS: <span className="warn">{stats.open_conflicts}</span>
+            </div>
           )}
         </>
       )}
@@ -338,6 +340,83 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
   );
 }
 
+/* ── Conflicts modal ─────────────────────────────── */
+function ConflictsModal({ conflicts, onResolve, onClose }) {
+  const [selectedId, setSelectedId] = useState(conflicts.length > 0 ? conflicts[0].id : null);
+  const selected = conflicts.find(c => c.id === selectedId) || conflicts[0];
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ width: 680, maxWidth: '90vw' }}>
+        <h3>CONFLICTS <span style={{color:'#ff8844'}}>({conflicts.length} open)</span></h3>
+        {conflicts.length === 0 ? (
+          <p style={{color:'#58a858'}}>No open conflicts.</p>
+        ) : (
+          <>
+            {conflicts.length > 1 && (
+              <div style={{marginBottom:16,display:'flex',gap:6,flexWrap:'wrap'}}>
+                {conflicts.map(c => (
+                  <button key={c.id}
+                    onClick={() => setSelectedId(c.id)}
+                    style={{
+                      padding:'4px 12px',fontSize:11,cursor:'pointer',fontFamily:'inherit',
+                      border:`1px solid ${c.id===selectedId?'#ff8844':'#2a3a2a'}`,
+                      background:c.id===selectedId?'#1a1a0a':'transparent',
+                      color:c.id===selectedId?'#ff8844':'#88aa88'
+                    }}>
+                    #{c.id} sim:{c.similarity?.toFixed(3)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {selected && (
+              <>
+                <div style={{display:'flex',gap:12,marginBottom:16}}>
+                  <div style={{flex:1,border:'1px solid #2a3a2a',padding:12}}>
+                    <div style={{fontSize:11,color:'#58a858',marginBottom:4}}>ENTRY A #{selected.entry_a_id}</div>
+                    <div style={{color:'#00ff41',fontWeight:600,fontSize:13,marginBottom:4}}>
+                      {selected.entry_a?.title || '(untitled)'}
+                    </div>
+                    <div style={{color:'#6a9a6a',fontSize:12,maxHeight:80,overflow:'hidden'}}>
+                      {(selected.entry_a?.content || '').substring(0, 200)}
+                    </div>
+                    <div style={{fontSize:10,color:'#447744',marginTop:6}}>
+                      {selected.entry_a?.owner_agent} · {selected.entry_a?.scope} · score:{selected.entry_a?.score?.toFixed(2)}
+                    </div>
+                  </div>
+                  <div style={{flex:1,border:'1px solid #2a3a2a',padding:12}}>
+                    <div style={{fontSize:11,color:'#58a858',marginBottom:4}}>ENTRY B #{selected.entry_b_id}</div>
+                    <div style={{color:'#00ff41',fontWeight:600,fontSize:13,marginBottom:4}}>
+                      {selected.entry_b?.title || '(untitled)'}
+                    </div>
+                    <div style={{color:'#6a9a6a',fontSize:12,maxHeight:80,overflow:'hidden'}}>
+                      {(selected.entry_b?.content || '').substring(0, 200)}
+                    </div>
+                    <div style={{fontSize:10,color:'#447744',marginTop:6}}>
+                      {selected.entry_b?.owner_agent} · {selected.entry_b?.scope} · score:{selected.entry_b?.score?.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:'#58a858',marginBottom:8}}>
+                  Similarity: <span style={{color:'#ff8844'}}>{(selected.similarity || 0).toFixed(4)}</span>
+                </div>
+                <div className="btn-row" style={{flexWrap:'wrap'}}>
+                  <button className="cancel" onClick={() => onResolve(selected.id, 'keep_both')}>KEEP BOTH</button>
+                  <button className="cancel" onClick={() => onResolve(selected.id, 'last_write_wins')}>LAST WINS</button>
+                  <button className="cancel" onClick={() => onResolve(selected.id, 'dismiss')}>DISMISS</button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+        <div className="btn-row" style={{marginTop:16}}>
+          <button className="cancel" onClick={onClose}>CLOSE</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── App ─────────────────────────────────────────── */
 function App() {
   const toast = useToast();
@@ -348,6 +427,8 @@ function App() {
   const [showNew, setShowNew] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showConflicts, setShowConflicts] = useState(false);
+  const [conflictsData, setConflictsData] = useState([]);
 
   const loadEntries = useCallback(async (page = 1) => {
     setLoading(true);
@@ -426,6 +507,25 @@ function App() {
     });
   };
 
+  const handleShowConflicts = async () => {
+    try {
+      const c = await api('/api/conflicts');
+      setConflictsData(c || []);
+      setShowConflicts(true);
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const handleResolveConflict = async (conflictId, strategy) => {
+    try {
+      await api(`/api/conflicts/${conflictId}/resolve`, { method: 'POST', body: { strategy } });
+      toast(`CONFLICT #${conflictId}: ${strategy}`);
+      const c = await api('/api/conflicts');
+      setConflictsData(c || []);
+      loadStats();
+      if (!c || c.length === 0) setShowConflicts(false);
+    } catch (e) { toast(e.message, true); }
+  };
+
   return (
     <div>
       <Header stats={stats} />
@@ -435,6 +535,7 @@ function App() {
           stats={stats}
           onSearch={handleSearch}
           onDreaming={handleDreaming}
+          onConflicts={handleShowConflicts}
         />
         <main className="main">
           <div className="toolbar">
@@ -480,6 +581,14 @@ function App() {
           message={confirm.message}
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {showConflicts && (
+        <ConflictsModal
+          conflicts={conflictsData}
+          onResolve={handleResolveConflict}
+          onClose={() => setShowConflicts(false)}
         />
       )}
     </div>
