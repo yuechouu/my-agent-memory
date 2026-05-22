@@ -224,7 +224,7 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts
 }
 
 /* ── Entry Row ───────────────────────────────────── */
-function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive }) {
+function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive, onDelete }) {
   const p = entry.is_pinned;
   const badge = (label, cls) => <span className={`badge ${cls}`}>{label}</span>;
 
@@ -254,6 +254,9 @@ function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive
           ? <button onClick={() => onShare(entry.id)}>SHARE</button>
           : <button onClick={() => onUnshare(entry.id)}>UNSHARE</button>}
         <button className="danger" onClick={() => onArchive(entry.id)}>ARCHIVE</button>
+        {entry.state === 'archived' && (
+          <button className="danger" onClick={() => onDelete(entry.id)} style={{borderColor:'#ff4444',color:'#ff4444'}}>DELETE</button>
+        )}
       </div>
     </div>
   );
@@ -492,6 +495,21 @@ function App() {
     });
   };
 
+  const handleDelete = (id) => {
+    setConfirm({
+      message: 'PERMANENTLY DELETE this entry? This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await api(`/api/entries/${id}`, { method: 'DELETE' });
+          toast('DELETED');
+          loadEntries(data.page);
+          loadStats();
+        } catch (e) { toast(e.message, true); }
+        setConfirm(null);
+      }
+    });
+  };
+
   const handleDreaming = () => {
     setConfirm({
       message: 'Run dreaming with dry_run=false? This will modify entries based on scoring.',
@@ -557,6 +575,7 @@ function App() {
                 onPin={handlePin} onUnpin={handleUnpin}
                 onShare={handleShare} onUnshare={handleUnshare}
                 onArchive={handleArchive}
+                onDelete={handleDelete}
               />
             ))
           )}
