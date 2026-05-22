@@ -83,8 +83,8 @@ def _output(data, human: bool = False):
         print(json.dumps(_json_safe(data), ensure_ascii=False))
 
 
-def _get_store(db_path: str = "") -> MultiAgentStore:
-    agent_id = os.getenv("HERMES_AGENT_ID", "")
+def _get_store(db_path: str = "", agent_id: str = "") -> MultiAgentStore:
+    agent_id = agent_id or os.getenv("HERMES_AGENT_ID", "")
     return MultiAgentStore(agent_id=agent_id, db_path=db_path)
 
 
@@ -92,7 +92,8 @@ def _get_store(db_path: str = "") -> MultiAgentStore:
 
 def _get_store_from_args(args) -> MultiAgentStore:
     db_path = getattr(args, 'db_path', '') or ""
-    return _get_store(db_path)
+    agent_id = getattr(args, 'agent', '') or ""
+    return _get_store(db_path, agent_id)
 
 
 def _cmd_search(args):
@@ -223,7 +224,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="my-agent-memory",
         description="My Agent Memory — multi-agent memory system",
     )
-    parser.add_argument("--db-path", default="", help="Path to memory_v2.db (default: $HERMES_HOME/memories/memory_v2.db)")
+    parser.add_argument("--db-path", default="", help="Path to memory_v2.db")
+    parser.add_argument("--agent", default="", help="Agent ID (default: $HERMES_AGENT_ID)")
     sub = parser.add_subparsers(dest="command")
 
     # search
