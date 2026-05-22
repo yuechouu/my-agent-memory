@@ -89,19 +89,21 @@ class DreamingEngine:
             and e.get("access_count", 0) >= 2
         ]
 
-        # Demote: promoted/hot entries with low score (not pinned)
+        # Demote: promoted/hot entries with low score (not pinned, not fresh)
         demote_candidates = [
             e for e in all_entries
             if e["state"] in ("promoted", "hot")
             and not e.get("is_pinned")
+            and e.get("access_count", 0) > 0           # never accessed → keep
             and score_map.get(e["id"], 0) < demote_threshold
         ]
 
-        # Archive: any active entries with very low score (not pinned, not already archived)
+        # Archive: any active entries with very low score (not pinned, not fresh)
         archive_candidates = [
             e for e in all_entries
             if e["state"] in ("raw", "promoted", "hot")
             and not e.get("is_pinned")
+            and e.get("access_count", 0) > 0           # never accessed → keep
             and score_map.get(e["id"], 0) < archive_threshold
         ]
 
