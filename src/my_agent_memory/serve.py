@@ -45,9 +45,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_html()
         elif path == "/api/entries":
             self._handle_json(self._list_entries(params))
-        elif path.startswith("/api/entries/") and path.endswith("/pin"):
-            eid = int(path.split("/")[3])
-            self._handle_json(self.store.pin(eid))
         elif path.startswith("/api/entries/"):
             eid = int(path.split("/")[3])
             self._handle_json(self.store.get(eid))
@@ -83,6 +80,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/entries/") and path.endswith("/unshare"):
             eid = int(path.split("/")[3])
             self._handle_json(self.store.unshare(eid))
+        elif path.startswith("/api/entries/") and path.endswith("/pin"):
+            eid = int(path.split("/")[3])
+            self._handle_json(self.store.pin(eid))
         elif path.startswith("/api/entries/") and path.endswith("/unpin"):
             eid = int(path.split("/")[3])
             self._handle_json(self.store.unpin(eid))
@@ -127,7 +127,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             scope=params.get("scope"),
             state=params.get("state"),
             page=int(params.get("page", 1)),
-            limit=int(params.get("limit", 20)),
+            limit=int(params.get("limit", 10)),
             query=params.get("q"),
             sort_by=params.get("sort", ""),
             sort_order=params.get("order", "desc"),

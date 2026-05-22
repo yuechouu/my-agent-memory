@@ -177,11 +177,15 @@ function Header({ stats }) {
 
 /* ── Sidebar ─────────────────────────────────────── */
 function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts }) {
+  const applyFilter = (updates) => {
+    setFilters(f => ({ ...f, ...updates }));
+    setTimeout(onSearch, 0);
+  };
   return (
     <aside className="sidebar">
       <div className="section">
         <div className="label">AGENT</div>
-        <select value={filters.agent || ''} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))}>
+        <select value={filters.agent || ''} onChange={e => applyFilter({ agent: e.target.value })}>
           <option value="">* ALL</option>
           {stats && stats.by_agent && Object.keys(stats.by_agent).map(a =>
             <option key={a} value={a}>{a} ({stats.by_agent[a]})</option>
@@ -190,7 +194,7 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts
       </div>
       <div className="section">
         <div className="label">SCOPE</div>
-        <select value={filters.scope || ''} onChange={e => setFilters(f => ({ ...f, scope: e.target.value }))}>
+        <select value={filters.scope || ''} onChange={e => applyFilter({ scope: e.target.value })}>
           <option value="">* ALL</option>
           <option value="private">private</option>
           <option value="shared">shared</option>
@@ -199,7 +203,7 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts
       </div>
       <div className="section">
         <div className="label">STATE</div>
-        <select value={filters.state || ''} onChange={e => setFilters(f => ({ ...f, state: e.target.value }))}>
+        <select value={filters.state || ''} onChange={e => applyFilter({ state: e.target.value })}>
           <option value="">* ALL</option>
           <option value="raw">raw</option>
           <option value="promoted">promoted</option>
@@ -461,7 +465,7 @@ function App() {
   const loadEntries = useCallback(async (page = 1) => {
     setLoading(true);
     try {
-      const params = { page, limit: 20, sort: sort.by, order: sort.order, ...filters };
+      const params = { page, limit: 10, sort: sort.by, order: sort.order, ...filters };
       const result = await api('/api/entries' + buildQuery(params));
       setData(result);
     } catch (e) {
