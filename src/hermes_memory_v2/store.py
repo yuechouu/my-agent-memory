@@ -437,3 +437,7 @@ class Store(MultiAgentStore):
     def __init__(self, db_path: str = ""):
         super().__init__(db_path=db_path)
         # In v1 compatibility mode, default agent_id from env or 'noor'
+
+    # v1 method name aliases
+    status = MultiAgentStore.stats
+    dream = MultiAgentStore.dreaming

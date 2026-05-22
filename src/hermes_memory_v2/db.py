@@ -708,6 +708,9 @@ class Database:
 
         return {
             "total": total,
+            "promoted": by_state.get("promoted", 0) + by_state.get("hot", 0),
+            "raw": by_state.get("raw", 0),
+            "archived": by_state.get("archived", 0),
             "by_state": by_state,
             "by_scope": by_scope,
             "by_agent": by_agent,
