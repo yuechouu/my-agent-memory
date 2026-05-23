@@ -8,6 +8,8 @@ Strategy:
 
 from typing import Optional
 
+__all__ = ["HybridSearch"]
+
 
 class HybridSearch:
     """Orchestrates FTS5 and vector search with RRF fusion."""
@@ -120,6 +122,10 @@ class HybridSearch:
         # Build entry map from FTS results
         entry_map = {r["id"]: r for r in fts_results}
 
+        # Pre-compute vector rank map (sorted once, not per iteration)
+        sorted_vec = sorted(vec_scores.items(), key=lambda x: x[1])
+        vec_rank_map = {vid: rank for rank, (vid, _) in enumerate(sorted_vec)}
+
         # Compute RRF scores
         rrf_scores = {}
         for rank, entry in enumerate(fts_results):
@@ -127,19 +133,12 @@ class HybridSearch:
             fts_term = fts_weight / (k + rank + 1)
 
             vec_term = 0.0
-            if entry_id in vec_scores:
-                # Vec scores are distances, need ranking. Build rank from vec_scores.
-                # Sort vec_scores by distance ascending to get ranks.
-                sorted_vec = sorted(vec_scores.items(), key=lambda x: x[1])
-                for vec_rank, (vid, vdist) in enumerate(sorted_vec):
-                    if vid == entry_id:
-                        vec_term = vec_weight / (k + vec_rank + 1)
-                        break
+            if entry_id in vec_rank_map:
+                vec_term = vec_weight / (k + vec_rank_map[entry_id] + 1)
 
             rrf_scores[entry_id] = fts_term + vec_term
 
         # Add entries from vector results that weren't in FTS results
-        sorted_vec = sorted(vec_scores.items(), key=lambda x: x[1])
         for vec_rank, (entry_id, vdist) in enumerate(sorted_vec):
             if entry_id not in entry_map:
                 vec_term = vec_weight / (k + vec_rank + 1)

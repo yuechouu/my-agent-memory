@@ -18,6 +18,8 @@ from typing import Optional
 
 from my_agent_memory.scoring import compute_scores_for_entries
 
+__all__ = ["DreamingEngine"]
+
 logger = logging.getLogger("my-agent-memory.dreaming")
 
 
@@ -205,24 +207,25 @@ class DreamingEngine:
             self.hot_layer.rebuild_agent(entry.get("owner_agent", "noor"))
         return True
 
-    def _detect_conflicts(self) -> int:
+    def _detect_conflicts(self, recent_days: int = 30) -> int:
         """Detect conflicts in shared/project scope.
 
         Uses vector similarity (cosine > 0.9) then LLM semantic check.
-        For now, uses a simple cosine threshold — LLM semantic check is a future enhancement.
+        Only checks entries updated within recent_days to avoid O(n²) on full corpus.
         """
         if not self.db.has_vector:
             return 0
 
-        # Get shared-scope entries with embeddings
+        # Only check recently updated entries to bound the comparison set
         shared_entries = self.db.fetchall("""
             SELECT * FROM memory_entries
             WHERE scope IN ('shared', 'project')
               AND embedding IS NOT NULL
               AND state != 'deleted'
               AND deleted_at IS NULL
+              AND updated_at > datetime('now', ?)
             ORDER BY updated_at DESC
-        """)
+        """, (f"-{recent_days} days",))
 
         if len(shared_entries) < 2:
             return 0

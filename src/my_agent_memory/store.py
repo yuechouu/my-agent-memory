@@ -20,6 +20,7 @@ from my_agent_memory.conflicts import ConflictResolver
 from my_agent_memory.hot_layer import HotLayer
 from my_agent_memory.validate import validate_sync
 from my_agent_memory.embed import EmbeddingClient
+from my_agent_memory.config import get_api_key
 
 
 class MultiAgentStore:
@@ -73,25 +74,16 @@ class MultiAgentStore:
 
     def _get_api_key(self) -> str:
         """Get SiliconFlow API key from config, env, or auth file."""
+        # 1. Explicit config passed to constructor
         key = self.config.get("embedding", {}).get("api_key", "")
         if key:
             return key
-        key = os.getenv("SILICONFLOW_API_KEY", "")
-        if key:
-            return key
-        # Try auth file
-        auth_path = Path.home() / ".local" / "share" / "kilo" / "auth.json"
-        if auth_path.exists():
-            import json
-            try:
-                data = json.loads(auth_path.read_text())
-                sf = data.get("siliconflow", {})
-                if isinstance(sf, dict):
-                    return sf.get("key", "")
-                return data.get("siliconflow_key", "") or data.get("api_key", "")
-            except Exception:
-                pass
-        return ""
+        # 2. Env var > auth file
+        return get_api_key(
+            "siliconflow",
+            env_var="SILICONFLOW_API_KEY",
+            config_key="siliconflow_key",
+        )
 
     # ── CRUD ─────────────────────────────────────────────────
 
@@ -243,9 +235,9 @@ class MultiAgentStore:
         """Run dreaming pass. See DreamingEngine.run() for full options."""
         return self.dreaming_engine.run(
             dry_run=dry_run,
-            promote_threshold=promote_threshold or 3.0,
-            demote_threshold=demote_threshold or 1.0,
-            archive_threshold=archive_threshold or 0.1,
+            promote_threshold=promote_threshold if promote_threshold is not None else 3.0,
+            demote_threshold=demote_threshold if demote_threshold is not None else 1.0,
+            archive_threshold=archive_threshold if archive_threshold is not None else 0.1,
             **kwargs,
         )
 
@@ -384,22 +376,28 @@ class MultiAgentStore:
     # ── Internal ─────────────────────────────────────────────
 
     def _schedule_embedding(self, entry_id: int, content: str):
-        """Generate embedding for a new entry (runs synchronously for simplicity).
+        """Generate embedding for a new entry in a background thread.
 
-        For production async, this would use threading or a background queue.
+        Non-blocking — runs in a daemon thread so save() returns immediately.
         """
         if not self.embed_client:
             return
-        try:
-            embedding = self.embed_client.embed(content)
-            if embedding:
-                import struct
-                blob = struct.pack(f"<{len(embedding)}f", *embedding)
-                self.db.set_embedding(entry_id, blob, self.embed_client.model)
-                # Also index for vector search
-                self.db.index_vector(entry_id, embedding)
-        except Exception:
-            pass  # Embedding is best-effort, not critical
+
+        import threading
+
+        def _run():
+            try:
+                embedding = self.embed_client.embed(content)
+                if embedding:
+                    import struct
+                    blob = struct.pack(f"<{len(embedding)}f", *embedding)
+                    self.db.set_embedding(entry_id, blob, self.embed_client.model)
+                    self.db.index_vector(entry_id, embedding)
+            except Exception:
+                pass  # Embedding is best-effort, not critical
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
 
     # ── Async validation ─────────────────────────────────────
 

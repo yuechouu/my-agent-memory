@@ -22,6 +22,9 @@ def _get_hermes_home() -> Path:
     return Path.home() / ".hermes"
 
 
+__all__ = ["HotLayer"]
+
+
 class HotLayer:
     """Generates and maintains the hot layer Markdown projection."""
 
@@ -68,6 +71,8 @@ class HotLayer:
         For 'shared': all scope=shared entries.
         For specific agents: their promoted/hot entries + shared entries.
         """
+        from my_agent_memory.db import _enrich_row
+
         if agent_id == "shared":
             rows = self.db.fetchall("""
                 SELECT * FROM memory_entries
@@ -76,7 +81,7 @@ class HotLayer:
                   AND deleted_at IS NULL
                 ORDER BY is_pinned DESC, score DESC
             """)
-            return rows
+            return [_enrich_row(r) for r in rows]
 
         rows = self.db.fetchall("""
             SELECT * FROM memory_entries
@@ -85,7 +90,7 @@ class HotLayer:
               AND deleted_at IS NULL
             ORDER BY is_pinned DESC, score DESC
         """, (agent_id,))
-        return rows
+        return [_enrich_row(r) for r in rows]
 
     def get_system_prompt_block(self, agent_id: str, max_chars: int = None) -> str:
         """Get the hot layer content formatted for system prompt injection.
@@ -186,7 +191,6 @@ class HotLayer:
         if regular:
             lines.append("## Active")
             for e in regular:
-                lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
                 lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
 
         return "\n".join(lines) + "\n"

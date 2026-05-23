@@ -10,6 +10,8 @@ from typing import Optional
 
 from my_agent_memory.db import _enrich_row
 
+__all__ = ["ConflictResolver"]
+
 logger = logging.getLogger("my-agent-memory.conflicts")
 
 

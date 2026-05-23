@@ -5,18 +5,23 @@ Supports multiple providers via ~/.local/share/kilo/auth.json:
   - deepseek (fallback)
 
 Used for consolidate and conflict checking.
+
+Error strategy: raises LLMError on failure (callers should catch).
 """
 
 import json
 import urllib.request
 import urllib.error
-from pathlib import Path
 from typing import Optional, List
+
+from my_agent_memory.config import get_auth_data
 
 
 DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 DEFAULT_MODEL = "mimo-v2.5-pro"
 DEFAULT_TIMEOUT = 60  # seconds
+
+__all__ = ["LLMClient", "LLMError", "build_consolidate_messages", "parse_consolidate_response"]
 
 
 class LLMError(Exception):
@@ -42,27 +47,19 @@ class LLMClient:
 
     @staticmethod
     def _load_config() -> tuple[str, str]:
-        """Load API key and base_url from Kilo auth file.
-        
+        """Load API key and base_url from auth file via config module.
+
         Tries xiaomimimo first, then deepseek.
         Returns (api_key, base_url) tuple.
         """
-        auth_path = Path.home() / ".local" / "share" / "kilo" / "auth.json"
-        if not auth_path.exists():
-            return "", ""
-        try:
-            data = json.loads(auth_path.read_text())
-        except Exception:
-            return "", ""
-
         # Try xiaomimimo first
-        xm = data.get("xiaomimimo", {})
-        if isinstance(xm, dict) and xm.get("key"):
+        xm = get_auth_data("xiaomimimo")
+        if xm.get("key"):
             return xm["key"], xm.get("base_url", DEFAULT_BASE_URL)
 
         # Fallback to deepseek
-        ds = data.get("deepseek", {})
-        if isinstance(ds, dict) and ds.get("key"):
+        ds = get_auth_data("deepseek")
+        if ds.get("key"):
             return ds["key"], "https://api.deepseek.com"
 
         return "", ""

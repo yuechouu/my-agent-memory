@@ -18,29 +18,34 @@
  *   unshareMemory(id) → object
  */
 
-import { execSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
 const CLI = 'my-agent-memory';
 const DB_PATH = 'E:/hermes/hermes-data/memories/memory_v2.db';
-const BASE_ARGS = `--db-path "${DB_PATH}"`;
+const BASE_ARGS = ['--db-path', DB_PATH];
+const TIMEOUT_MS = 15000;
 
-function sh(cmd) {
-  try {
-    const out = execSync(cmd, {
+function runCli(args, env) {
+  return new Promise((resolve) => {
+    execFile(CLI, args, {
       encoding: 'utf-8',
-      timeout: 15000,
+      timeout: TIMEOUT_MS,
       maxBuffer: 1024 * 512,
       windowsHide: true,
+      env: env || process.env,
+    }, (err, stdout, stderr) => {
+      if (err) {
+        console.warn('[my-agent-memory] CLI failed:', args.slice(0, 3).join(' '), '—', err.message);
+        resolve(null);
+        return;
+      }
+      resolve(stdout.trim());
     });
-    return out.trim();
-  } catch (err) {
-    console.warn('[my-agent-memory] CLI failed:', cmd.substring(0, 80), '—', err.message);
-    return null;
-  }
+  });
 }
 
-function shJson(cmd) {
-  const raw = sh(cmd);
+async function runCliJson(args, env) {
+  const raw = await runCli(args, env);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -50,47 +55,23 @@ function shJson(cmd) {
 }
 
 function esc(s) {
-  return s.replace(/"/g, '\\"');
+  return String(s).replace(/"/g, '\\"');
 }
 
 export class HanakoProvider {
   constructor(config) {
     this.agentId = config.agent_id || 'hanako';
     this.dbPath = config.db_path || DB_PATH;
+    this._baseArgs = ['--db-path', this.dbPath];
     this._env = { ...process.env, HERMES_AGENT_ID: this.agentId };
-  }
-
-  _sh(cmd) {
-    try {
-      const out = execSync(cmd, {
-        encoding: 'utf-8',
-        timeout: 15000,
-        maxBuffer: 1024 * 512,
-        windowsHide: true,
-        env: this._env,
-      });
-      return out.trim();
-    } catch (err) {
-      console.warn('[my-agent-memory] CLI failed:', cmd.substring(0, 80), '—', err.message);
-      return null;
-    }
-  }
-
-  _shJson(cmd) {
-    const raw = this._sh(cmd);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
-    }
   }
 
   // ── MemoryProvider interface ──────────────────────────────
 
-  prefetch(query) {
-    const results = this._shJson(
-      `${CLI} ${BASE_ARGS} hybrid "${esc(query)}" --agent ${this.agentId} --limit 5`
+  async prefetch(query) {
+    const results = await runCliJson(
+      [...this._baseArgs, 'hybrid', query, '--agent', this.agentId, '--limit', '5'],
+      this._env,
     );
     if (!results || !Array.isArray(results) || results.length === 0) return '';
 
@@ -110,8 +91,8 @@ export class HanakoProvider {
     return lines.join('\n');
   }
 
-  systemPromptBlock() {
-    return this._sh(`${CLI} ${BASE_ARGS} system-prompt --agent ${this.agentId}`) || '';
+  async systemPromptBlock() {
+    return (await runCli([...this._baseArgs, 'system-prompt', '--agent', this.agentId], this._env)) || '';
   }
 
   sync(_userMsg, _asstMsg) {}
@@ -120,27 +101,28 @@ export class HanakoProvider {
 
   // ── Write operations (agent can call from conversation) ───
 
-  saveMemory(content, title = '', tags = [], scope = 'private') {
+  async saveMemory(content, title = '', tags = [], scope = 'private') {
     const tagStr = Array.isArray(tags) ? tags.join(',') : '';
-    const result = this._shJson(
-      `${CLI} ${BASE_ARGS} save "${esc(content)}" --title "${esc(title)}" --tags "${esc(tagStr)}" --scope ${scope}`
-    );
-    return result;
+    const args = [...this._baseArgs, 'save', content];
+    if (title) args.push('--title', title);
+    if (tagStr) args.push('--tags', tagStr);
+    if (scope) args.push('--scope', scope);
+    return runCliJson(args, this._env);
   }
 
-  pinMemory(id) {
-    return this._shJson(`${CLI} ${BASE_ARGS} pin ${id}`);
+  async pinMemory(id) {
+    return runCliJson([...this._baseArgs, 'pin', String(id)], this._env);
   }
 
-  unpinMemory(id) {
-    return this._shJson(`${CLI} ${BASE_ARGS} unpin ${id}`);
+  async unpinMemory(id) {
+    return runCliJson([...this._baseArgs, 'unpin', String(id)], this._env);
   }
 
-  shareMemory(id) {
-    return this._shJson(`${CLI} ${BASE_ARGS} share ${id}`);
+  async shareMemory(id) {
+    return runCliJson([...this._baseArgs, 'share', String(id)], this._env);
   }
 
-  unshareMemory(id) {
-    return this._shJson(`${CLI} ${BASE_ARGS} unshare ${id}`);
+  async unshareMemory(id) {
+    return runCliJson([...this._baseArgs, 'unshare', String(id)], this._env);
   }
 }

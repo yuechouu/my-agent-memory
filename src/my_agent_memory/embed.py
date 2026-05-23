@@ -5,6 +5,8 @@ Features:
   - Checksum-based caching (same content → same checksum → skip re-embedding)
   - Async generation (embedding runs after write returns, non-blocking)
   - Configurable base URL and model
+
+Error strategy: best-effort. Returns None on failure (embedding is non-critical).
 """
 
 import hashlib
@@ -19,6 +21,8 @@ DEFAULT_MODEL = "Qwen/Qwen3-Embedding-8B"
 DEFAULT_DIMENSIONS = 4096  # Qwen3-Embedding-8B
 DEFAULT_BATCH_SIZE = 10
 DEFAULT_TIMEOUT = 30  # seconds
+
+__all__ = ["EmbeddingClient", "EmbeddingError"]
 
 
 class EmbeddingError(Exception):

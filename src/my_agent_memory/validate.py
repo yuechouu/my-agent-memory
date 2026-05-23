@@ -2,7 +2,9 @@
 
 Two-layer defense:
   1. Synchronous gate (simple rules) — runs on every write, rejects immediately.
+     Returns (is_valid, error_message) tuple. Raises nothing.
   2. Async LLM semantic check — runs after gate passes, flags suspicious content.
+     Returns status string: 'clean', 'flagged:<reason>', or 'error'.
 
 Imported and adapted from hanako's injection scanning logic.
 """
@@ -53,6 +55,8 @@ MAX_CONTENT_LENGTH = 10000   # per memory entry
 MAX_TITLE_LENGTH = 200
 MAX_TAG_LENGTH = 50
 MAX_TAGS_COUNT = 10
+
+__all__ = ["validate_sync", "validate_async"]
 
 
 def validate_sync(content: str, title: str = "", tags: list = None) -> Tuple[bool, Optional[str]]:
