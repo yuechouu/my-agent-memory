@@ -1,7 +1,10 @@
-"""DeepSeek LLM client for memory consolidation and semantic tasks.
+"""LLM client for memory consolidation and semantic tasks.
 
-Uses DeepSeek Flash (cheap, fast) for consolidate and conflict checking.
-Reads API key from ~/.local/share/kilo/auth.json (deepseek.key).
+Supports multiple providers via ~/.local/share/kilo/auth.json:
+  - xiaomimimo (primary, OpenAI-compatible proxy)
+  - deepseek (fallback)
+
+Used for consolidate and conflict checking.
 """
 
 import json
@@ -11,8 +14,8 @@ from pathlib import Path
 from typing import Optional, List
 
 
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"  # Cheapest DeepSeek model, good for consolidation
+DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
+DEFAULT_MODEL = "mimo-v2.5"
 DEFAULT_TIMEOUT = 60  # seconds
 
 
@@ -22,31 +25,47 @@ class LLMError(Exception):
 
 
 class LLMClient:
-    """Simple DeepSeek chat completion client."""
+    """Chat completion client with multi-provider support."""
 
     def __init__(
         self,
         api_key: str = "",
-        base_url: str = DEFAULT_BASE_URL,
-        model: str = DEFAULT_MODEL,
+        base_url: str = "",
+        model: str = "",
         timeout: int = DEFAULT_TIMEOUT,
     ):
-        self.api_key = api_key or self._load_key()
-        self.base_url = base_url.rstrip("/")
-        self.model = model
+        key, url = self._load_config()
+        self.api_key = api_key or key
+        self.base_url = (base_url or url or DEFAULT_BASE_URL).rstrip("/")
+        self.model = model or DEFAULT_MODEL
         self.timeout = timeout
 
     @staticmethod
-    def _load_key() -> str:
-        """Load DeepSeek API key from Kilo auth file."""
+    def _load_config() -> tuple[str, str]:
+        """Load API key and base_url from Kilo auth file.
+        
+        Tries xiaomimimo first, then deepseek.
+        Returns (api_key, base_url) tuple.
+        """
         auth_path = Path.home() / ".local" / "share" / "kilo" / "auth.json"
-        if auth_path.exists():
-            try:
-                data = json.loads(auth_path.read_text())
-                return data.get("deepseek", {}).get("key", "")
-            except Exception:
-                pass
-        return ""
+        if not auth_path.exists():
+            return "", ""
+        try:
+            data = json.loads(auth_path.read_text())
+        except Exception:
+            return "", ""
+
+        # Try xiaomimimo first
+        xm = data.get("xiaomimimo", {})
+        if isinstance(xm, dict) and xm.get("key"):
+            return xm["key"], xm.get("base_url", DEFAULT_BASE_URL)
+
+        # Fallback to deepseek
+        ds = data.get("deepseek", {})
+        if isinstance(ds, dict) and ds.get("key"):
+            return ds["key"], "https://api.deepseek.com"
+
+        return "", ""
 
     def chat(self, messages: list[dict], temperature: float = 0.3,
              max_tokens: int = 1000) -> str:
@@ -64,9 +83,13 @@ class LLMClient:
             LLMError: On API error, network error, or missing key.
         """
         if not self.api_key:
-            raise LLMError("DeepSeek API key not configured")
+            raise LLMError("API key not configured")
 
-        url = f"{self.base_url}/v1/chat/completions"
+        # Handle base_url that already includes /v1
+        if self.base_url.endswith("/v1"):
+            url = f"{self.base_url}/chat/completions"
+        else:
+            url = f"{self.base_url}/v1/chat/completions"
         payload = json.dumps({
             "model": self.model,
             "messages": messages,
@@ -91,7 +114,12 @@ class LLMClient:
         if "choices" not in body or not body["choices"]:
             raise LLMError(f"No choices in response: {body}")
 
-        return body["choices"][0]["message"]["content"].strip()
+        msg = body["choices"][0].get("message", {})
+        content = (msg.get("content") or "").strip()
+        # Reasoning models (e.g. mimo-v2.5) output in reasoning_content
+        if not content:
+            content = (msg.get("reasoning_content") or "").strip()
+        return content
 
 
 CONSOLIDATE_SYSTEM_PROMPT = """You are a memory consolidation engine. Your job is to merge multiple related

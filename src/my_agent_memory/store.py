@@ -277,7 +277,7 @@ class MultiAgentStore:
             )
             llm = LLMClient()
             messages = build_consolidate_messages(entries)
-            response = llm.chat(messages, temperature=0.3, max_tokens=800)
+            response = llm.chat(messages, temperature=0.3, max_tokens=2000)
             parsed = parse_consolidate_response(response)
             if parsed.get("content"):
                 title = parsed["title"] or title
