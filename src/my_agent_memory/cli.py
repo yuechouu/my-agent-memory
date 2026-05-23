@@ -18,7 +18,8 @@ Usage:
   my-agent-memory conflicts [--resolve <id> --strategy merge|keep_both|last_write_wins]
   my-agent-memory rebuild
   my-agent-memory rebuild-hot
-  my-agent-memory embed-pending [--limit N]
+   my-agent-memory embed-pending [--limit N]
+   my-agent-memory validate-pending [--limit N]
   my-agent-memory migrate --v1-db <path> --v1-hot <dir> --agent <id> [--v2-db <path>] [--execute]
   my-agent-memory serve [--port N]
   my-agent-memory system-prompt [--agent <id>] [--max-chars N]
@@ -190,6 +191,11 @@ def _cmd_embed_pending(args):
     count = s.embed_pending(limit=args.limit)
     _output({"ok": True, "embedded": count}, human=True)
 
+def _cmd_validate_pending(args):
+    s = _get_store_from_args(args)
+    count = s.validate_pending(limit=args.limit)
+    _output({"ok": True, "validated": count}, human=True)
+
 
 def _cmd_migrate(args):
     from my_agent_memory.migrate import migrate_from_v1
@@ -299,6 +305,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("embed-pending", help="Generate embeddings for entries without them")
     p.add_argument("--limit", type=int, default=50)
     p.set_defaults(handler=_cmd_embed_pending)
+
+    # validate-pending
+    p = sub.add_parser("validate-pending", help="Run async LLM validation on unchecked entries")
+    p.add_argument("--limit", type=int, default=20)
+    p.set_defaults(handler=_cmd_validate_pending)
 
     # migrate
     p = sub.add_parser("migrate", help="Migrate from v1 to v2")

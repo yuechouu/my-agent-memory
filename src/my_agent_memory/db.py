@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     last_access_ts  TEXT,
     score           REAL DEFAULT 0.0,
 
+    -- Async security validation (validate.py LLM secondary check)
+    validation_status TEXT,   -- NULL=unchecked, clean, flagged:reason, error
+
     -- Vector (4096-dim float32 blob from Qwen3-Embedding-8B)
     embedding       BLOB,
     embedding_model TEXT,
@@ -167,6 +170,16 @@ class Database:
     def _init_schema(self):
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        # Auto-migrate: add validation_status if missing (v2.1 schema update)
+        self._add_column_if_missing("memory_entries", "validation_status", "TEXT")
+
+    def _add_column_if_missing(self, table: str, column: str, col_type: str):
+        """Add a column to a table if it doesn't already exist (SQLite-safe)."""
+        rows = self.fetchall(f"PRAGMA table_info({table})")
+        existing = {r["name"] for r in rows}
+        if column not in existing:
+            self.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+            self.commit()
 
     def _init_vector(self):
         """Load sqlite-vec extension and create vector table if not exists."""
@@ -405,6 +418,35 @@ class Database:
                WHERE embedding IS NULL AND deleted_at IS NULL AND content != ''
                ORDER BY created_at ASC LIMIT ?""",
             (limit,),
+        )
+        return [_enrich_row(r) for r in rows]
+
+    # ── Validation ───────────────────────────────────────────
+
+    def set_validation_status(self, entry_id: int, status: str):
+        """Set the async validation status for an entry (clean/flagged:reason/error)."""
+        self.execute(
+            "UPDATE memory_entries SET validation_status = ? WHERE id = ?",
+            (status, entry_id),
+        )
+        self.commit()
+
+    def get_unvalidated(self, limit: int = 20) -> list:
+        """Get entries that haven't been async-validated yet."""
+        rows = self.fetchall(
+            """SELECT id, title, content FROM memory_entries
+               WHERE validation_status IS NULL AND deleted_at IS NULL AND content != ''
+               ORDER BY created_at ASC LIMIT ?""",
+            (limit,),
+        )
+        return [_enrich_row(r) for r in rows]
+
+    def get_flagged(self) -> list:
+        """Get entries flagged by async validation."""
+        rows = self.fetchall(
+            """SELECT * FROM memory_entries
+               WHERE validation_status LIKE 'flagged:%' AND deleted_at IS NULL
+               ORDER BY updated_at DESC"""
         )
         return [_enrich_row(r) for r in rows]
 

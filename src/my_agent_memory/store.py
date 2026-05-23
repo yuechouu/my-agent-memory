@@ -128,6 +128,10 @@ class MultiAgentStore:
         if self.embed_client and result:
             self._schedule_embedding(result["id"], content)
 
+        # Async LLM validation (second-layer security check)
+        if result:
+            self._schedule_async_validation(result["id"], content, title)
+
         return result
 
     def get(self, entry_id: int) -> Optional[dict]:
@@ -396,6 +400,53 @@ class MultiAgentStore:
                 self.db.index_vector(entry_id, embedding)
         except Exception:
             pass  # Embedding is best-effort, not critical
+
+    # ── Async validation ─────────────────────────────────────
+
+    def _schedule_async_validation(self, entry_id: int, content: str, title: str = ""):
+        """Run async LLM validation for a newly saved entry.
+        
+        Called after save completes. Non-blocking — runs in a daemon thread.
+        Updates validation_status on the entry when done.
+        """
+        import threading
+
+        def _run():
+            try:
+                from my_agent_memory.validate import validate_async
+                status = validate_async(content, title)
+                self.db.set_validation_status(entry_id, status)
+            except Exception:
+                self.db.set_validation_status(entry_id, "error")
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
+    def validate_pending(self, limit: int = 20) -> int:
+        """Run async validation for entries that haven't been checked yet."""
+        entries = self.db.get_unvalidated(limit=limit)
+        if not entries:
+            return 0
+
+        from my_agent_memory.validate import validate_async
+        from my_agent_memory.llm import LLMClient
+        llm = LLMClient()
+
+        count = 0
+        for entry in entries:
+            try:
+                status = validate_async(
+                    entry.get("content", ""),
+                    entry.get("title", ""),
+                    llm_client=llm,
+                )
+                self.db.set_validation_status(entry["id"], status)
+                count += 1
+            except Exception:
+                self.db.set_validation_status(entry["id"], "error")
+                count += 1
+
+        return count
 
     def embed_pending(self, limit: int = 50) -> int:
         """Generate embeddings for entries that don't have them yet."""
