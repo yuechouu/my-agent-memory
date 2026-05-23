@@ -15,7 +15,7 @@ from typing import Optional, List
 
 
 DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
-DEFAULT_MODEL = "mimo-v2.5"
+DEFAULT_MODEL = "mimo-v2.5-pro"
 DEFAULT_TIMEOUT = 60  # seconds
 
 
