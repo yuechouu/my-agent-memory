@@ -21,7 +21,7 @@ DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 DEFAULT_MODEL = "mimo-v2.5-pro"
 DEFAULT_TIMEOUT = 60  # seconds
 
-__all__ = ["LLMClient", "LLMError", "build_consolidate_messages", "parse_consolidate_response"]
+__all__ = ["LLMClient", "LLMError", "build_consolidate_messages", "parse_consolidate_response", "build_extract_messages", "parse_extract_response", "build_suggest_tags_messages", "parse_suggest_tags_response"]
 
 
 class LLMError(Exception):
@@ -193,3 +193,88 @@ def parse_consolidate_response(text: str) -> dict:
         content = text.strip()
 
     return {"title": title.strip('"').strip(), "content": content.strip()}
+
+
+EXTRACT_SYSTEM_PROMPT = """You are a memory extraction engine. Analyze a conversation turn and extract ONLY durable, reusable facts.
+
+Extract these types of memories:
+- User preferences (tools, formats, habits)
+- Important facts (server info, credentials references, project details)
+- Explicit instructions ("remember this", "always do X", "don't do Y")
+- Technical decisions and their rationale
+
+Do NOT extract:
+- Greetings, small talk, or pleasantries
+- One-time questions without lasting value
+- Temporary context (current task status)
+- Anything the user explicitly said to forget
+
+If nothing worth remembering, respond ONLY: "NOTHING"
+
+Otherwise respond in this exact format:
+Title: <specific, searchable title>
+Content: <concise fact, plain text>
+Tags: <comma-separated tags, 3-5 words max each>
+
+One memory per conversation turn. Be selective."""
+
+
+def build_extract_messages(user_msg: str, assistant_msg: str) -> list[dict]:
+    """Build LLM messages for memory extraction from a conversation turn."""
+    return [
+        {"role": "system", "content": EXTRACT_SYSTEM_PROMPT},
+        {"role": "user", "content": f"User: {user_msg[:1000]}\n\nAssistant: {assistant_msg[:1000]}"},
+    ]
+
+
+def parse_extract_response(text: str) -> dict | None:
+    """Parse LLM extraction response.
+
+    Returns:
+        Dict with 'title', 'content', 'tags' keys, or None if nothing to remember.
+    """
+    upper = text.strip().upper()
+    if "NOTHING" in upper and len(text.strip()) < 30:
+        return None
+
+    title = ""
+    content = ""
+    tags = []
+
+    for line in text.split("\n"):
+        line = line.strip()
+        if line.lower().startswith("title:") and not title:
+            title = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("content:") and not content:
+            content = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("tags:"):
+            raw = line.split(":", 1)[1].strip()
+            tags = [t.strip() for t in raw.split(",") if t.strip()]
+        elif content:
+            content += "\n" + line
+
+    if not content:
+        return None
+
+    return {"title": title.strip('"').strip(), "content": content.strip(), "tags": tags}
+
+
+TAG_SUGGEST_PROMPT = """Suggest 3-5 short tags for this memory entry. Tags should be lowercase, single words or hyphenated.
+Output ONLY comma-separated tags, nothing else.
+
+Title: {title}
+Content: {content}"""
+
+
+def build_suggest_tags_messages(title: str, content: str) -> list[dict]:
+    """Build LLM messages for tag suggestion."""
+    return [
+        {"role": "user", "content": TAG_SUGGEST_PROMPT.format(title=title, content=content[:500])},
+    ]
+
+
+def parse_suggest_tags_response(text: str) -> list[str]:
+    """Parse LLM tag suggestion response into a list of tags."""
+    tags = [t.strip().lower() for t in text.strip().split(",") if t.strip()]
+    # Filter out tags that are too long or contain weird chars
+    return [t for t in tags if 1 < len(t) <= 30 and " " not in t][:5]

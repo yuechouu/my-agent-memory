@@ -12,10 +12,14 @@ Config format:
 }
 """
 
+import logging
 import os
+import threading
 from pathlib import Path
 
 from my_agent_memory.provider import MemoryProvider
+
+logger = logging.getLogger("my-agent-memory.hanako")
 
 
 class HanakoProvider(MemoryProvider):
@@ -78,11 +82,45 @@ class HanakoProvider(MemoryProvider):
         return self.store.get_system_prompt_block(agent_id=self.agent_id)
 
     def sync(self, user_msg: str, assistant_msg: str) -> None:
-        """Post-turn sync. Hanako's local experience library manages itself.
+        """Post-turn sync — extract memorable facts via LLM.
 
-        This provider only handles explicit writes to Hermes shared memory.
+        Runs asynchronously in a daemon thread to avoid blocking the conversation.
+        Only extracts durable facts (preferences, instructions, key info).
         """
-        pass
+        # Skip trivial turns (greetings, very short messages)
+        if len(user_msg.strip()) < 20:
+            return
+
+        def _extract():
+            try:
+                from my_agent_memory.llm import (
+                    LLMClient, build_extract_messages, parse_extract_response,
+                )
+
+                llm = LLMClient()
+                messages = build_extract_messages(user_msg, assistant_msg)
+                response = llm.chat(messages, temperature=0.1, max_tokens=300)
+
+                if not response:
+                    return
+
+                result = parse_extract_response(response)
+                if not result:
+                    return
+
+                self.store.save(
+                    content=result["content"],
+                    title=result["title"],
+                    tags=result.get("tags", []),
+                    source="auto_extract",
+                )
+                logger.info("Auto-extracted memory: %s", result["title"][:60])
+
+            except Exception as e:
+                logger.debug("Memory extraction failed (non-critical): %s", e)
+
+        t = threading.Thread(target=_extract, daemon=True)
+        t.start()
 
     def on_session_end(self) -> None:
         """Session end — optionally trigger dreaming.

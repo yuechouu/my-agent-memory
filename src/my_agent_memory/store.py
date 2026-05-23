@@ -124,6 +124,10 @@ class MultiAgentStore:
         if result:
             self._schedule_async_validation(result["id"], content, title)
 
+        # Async tag suggestion when no tags provided
+        if result and not tags:
+            self._schedule_tag_suggestion(result["id"], content, title)
+
         return result
 
     def get(self, entry_id: int) -> Optional[dict]:
@@ -416,6 +420,31 @@ class MultiAgentStore:
                 self.db.set_validation_status(entry_id, status)
             except Exception:
                 self.db.set_validation_status(entry_id, "error")
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
+    def _schedule_tag_suggestion(self, entry_id: int, content: str, title: str = ""):
+        """Suggest tags for an entry via LLM if none were provided.
+
+        Runs asynchronously in a daemon thread. Updates the entry's tags when done.
+        """
+        import threading
+
+        def _run():
+            try:
+                from my_agent_memory.llm import (
+                    LLMClient, build_suggest_tags_messages, parse_suggest_tags_response,
+                )
+                llm = LLMClient()
+                messages = build_suggest_tags_messages(title, content)
+                response = llm.chat(messages, temperature=0.1, max_tokens=100)
+                if response:
+                    tags = parse_suggest_tags_response(response)
+                    if tags:
+                        self.db.update(entry_id, tags=tags)
+            except Exception:
+                pass  # Best-effort, non-critical
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()

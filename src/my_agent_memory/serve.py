@@ -52,6 +52,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_json(self.store.get_conflicts("open"))
         elif path == "/api/stats":
             self._handle_json(self.store.stats())
+        elif path == "/api/hybrid":
+            self._handle_json(self._hybrid_search(params))
+        elif path == "/api/system-prompt":
+            agent = params.get("agent", self.store.agent_id)
+            max_chars = int(params["max_chars"]) if params.get("max_chars") else None
+            self._handle_json({"agent": agent, "content": self.store.get_system_prompt_block(agent_id=agent, max_chars=max_chars)})
         elif path == "/api/dreaming-log":
             self._handle_json(self.store.db.get_dreaming_log(limit=int(params.get("limit", 20))))
         elif path == "/api/audit-log":
@@ -120,6 +126,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_json({"ok": success, "id": eid})
         else:
             self._error(404, "Not found")
+
+    def _hybrid_search(self, params: dict):
+        query = params.get("q", "")
+        if not query:
+            return {"error": "Missing query parameter 'q'", "results": []}
+        return self.store.hybrid_search(
+            query,
+            limit=int(params.get("limit", 10)),
+            agent_id=params.get("agent", "*"),
+            scope=params.get("scope"),
+            project=params.get("project"),
+        )
 
     def _list_entries(self, params: dict):
         return self.store.list_entries(
