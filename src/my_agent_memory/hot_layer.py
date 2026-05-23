@@ -105,6 +105,9 @@ class HotLayer:
         if not entries:
             return ""
 
+        from my_agent_memory.db import _enrich_row
+        entries = [_enrich_row(e) for e in entries]
+
         lines = [f"## Memory ({agent_id})", ""]
 
         # Separate pinned and regular entries (pinned first)
@@ -140,7 +143,7 @@ class HotLayer:
     def _format_entry(self, entry: dict) -> str:
         """Format a single entry for the hot layer."""
         from my_agent_memory.db import _enrich_row
-        e = _enrich_row(entry) if not isinstance(entry.get("tags"), list) else entry
+        e = _enrich_row(entry) if not isinstance(entry, dict) else entry
 
         pin_marker = "📌 " if e.get("is_pinned") else ""
         scope_marker = ""
@@ -159,6 +162,9 @@ class HotLayer:
         """Format the full MEMORY.md file content."""
         from my_agent_memory.db import _enrich_row
 
+        # Convert all Row objects to dicts upfront
+        entries = [_enrich_row(e) for e in entries]
+
         updated = datetime.now().strftime("%Y-%m-%d %H:%M")
         if agent_id == "shared":
             header = f"# Shared Memory\n*{len(entries)} entries · updated {updated}*\n"
@@ -172,7 +178,6 @@ class HotLayer:
         if pinned:
             lines.append("## Pinned")
             for e in pinned:
-                e = _enrich_row(e) if not isinstance(e.get("tags"), list) else e
                 lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
             lines.append("")
 
@@ -181,7 +186,7 @@ class HotLayer:
         if regular:
             lines.append("## Active")
             for e in regular:
-                e = _enrich_row(e) if not isinstance(e.get("tags"), list) else e
+                lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
                 lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
 
         return "\n".join(lines) + "\n"
