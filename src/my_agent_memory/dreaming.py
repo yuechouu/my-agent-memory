@@ -248,8 +248,12 @@ class DreamingEngine:
                 )
 
                 if sim > 0.9:
-                    # High similarity — potential conflict
-                    reason = f"High cosine similarity ({sim:.4f}) between entries {a['id']} and {b['id']}"
+                    # High similarity — verify semantic contradiction with LLM
+                    contradiction = self._check_contradiction_llm(a, b, sim)
+                    if contradiction is False:
+                        # LLM says no contradiction — skip (similar but not conflicting)
+                        continue
+                    reason = contradiction if isinstance(contradiction, str) else f"High cosine similarity ({sim:.4f}) between entries {a['id']} and {b['id']}"
                     self.db.insert_conflict(a["id"], b["id"], sim, reason)
                     conflict_count += 1
 
@@ -269,3 +273,47 @@ class DreamingEngine:
             return 0.0
 
         return dot / (norm_a * norm_b)
+
+    def _check_contradiction_llm(self, entry_a: dict, entry_b: dict, sim: float):
+        """Use LLM to check if two similar entries actually contradict each other.
+
+        Returns:
+            False — LLM says they do NOT contradict (safe to ignore)
+            str — Contradiction reason (record as conflict)
+            None — LLM call failed, fall back to cosine-only behavior
+        """
+        try:
+            from my_agent_memory.llm import LLMClient
+
+            prompt = f"""Check if these two memory entries contradict:
+
+A [{entry_a.get('owner_agent', '?')}]: {entry_a.get('title', '?')}
+  {entry_a.get('content', '')[:300]}
+
+B [{entry_b.get('owner_agent', '?')}]: {entry_b.get('title', '?')}
+  {entry_b.get('content', '')[:300]}
+
+Cosine similarity: {sim:.4f}
+Do they state contradictory facts? Reply ONLY "CONTRADICT" or "SIMILAR"."""
+
+            llm = LLMClient()
+            response = llm.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=500,
+            )
+
+            if not response:
+                return None
+
+            upper = response.strip().upper()
+            # Check full response for keywords (reasoning models think first, then answer)
+            if "CONTRADICT" in upper:
+                return f"LLM verified contradiction (cosine={sim:.4f})"
+            elif "SIMILAR" in upper:
+                return False  # No contradiction
+            else:
+                return None  # Ambiguous
+
+        except Exception:
+            return None  # LLM failed → fall back

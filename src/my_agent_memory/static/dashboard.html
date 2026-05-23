@@ -54,6 +54,8 @@ body{background:#0b0e11;color:#c0ffc0;font-family:'Cascadia Code','Consolas','Co
 .entry .badge.raw{border-color:#447744;color:#88aa88}
 .entry .badge.archived{border-color:#884444;color:#cc8888}
 .entry .badge.agent{font-size:10px;color:#447744;border:none;padding:0}
+.entry .badge.vec{border-color:#0066aa;color:#44aaff;font-size:10px}
+.entry .badge.novec{border-color:#444444;color:#666666;font-size:10px}
 .entry .content{color:#6a9a6a;max-height:42px;overflow:hidden;font-size:13px;line-height:1.6}
 .entry .meta{font-size:11px;color:#448844;margin-top:6px;display:flex;gap:20px;flex-wrap:wrap}
 .entry .meta span{white-space:nowrap}
@@ -260,6 +262,7 @@ function EntryRow({ entry, onEdit, onPin, onUnpin, onShare, onUnshare, onArchive
           {badge(entry.scope || 'private', entry.scope || 'private')}
           {badge(entry.state || 'raw', entry.state || 'raw')}
           <span className="badge agent">{entry.owner_agent || ''}</span>
+          {entry.embedding ? <span className="badge vec" title="Vector indexed">vec</span> : <span className="badge novec" title="No vector embedding">no-vec</span>}
         </div>
         <div className="content">{(entry.content || '').substring(0, 250)}</div>
         <div className="meta">
