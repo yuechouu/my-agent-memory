@@ -95,6 +95,44 @@ def validate_sync(content: str, title: str = "", tags: list = None) -> Tuple[boo
     return True, None
 
 
+# ── Tag validation ─────────────────────────────────────────
+
+DEFAULT_TAG_BLACKLIST = [
+    "misc", "other", "todo", "temp", "test", "asdf", "aaa",
+    "untitled", "untagged", "general", "default", "random", "stuff",
+]
+
+_TAG_FORMAT_RE = re.compile(r'^[a-z0-9][a-z0-9_-]*$')
+
+
+def validate_tags(tags: list[str], tag_blacklist: list[str] = None) -> Tuple[bool, Optional[str]]:
+    """Validate tags for format, blacklist, and duplicates.
+
+    Returns (True, None) on success, (False, error_message) on failure.
+    """
+    if not tags:
+        return True, None
+
+    blacklist = set(t.lower() for t in (tag_blacklist or DEFAULT_TAG_BLACKLIST))
+    seen = set()
+
+    for tag in tags:
+        if not tag or not tag.strip():
+            return False, "Empty tag"
+        tag = tag.strip().lower()
+        if len(tag) > 30:
+            return False, f"Tag '{tag}' exceeds 30 characters"
+        if not _TAG_FORMAT_RE.match(tag):
+            return False, f"Tag '{tag}' must be lowercase alphanumeric (hyphens/underscores allowed)"
+        if tag in blacklist:
+            return False, f"Tag '{tag}' is blacklisted"
+        if tag in seen:
+            return False, f"Duplicate tag: '{tag}'"
+        seen.add(tag)
+
+    return True, None
+
+
 def _invisible_names(chars: list[str]) -> str:
     """Convert invisible characters to readable names."""
     import unicodedata

@@ -55,6 +55,7 @@ MEMORY_SAVE_SCHEMA = {
             "title": {"type": "string", "description": "Short descriptive title."},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "scope": {"type": "string", "enum": ["private", "shared"], "description": "Visibility (default: private)."},
+            "memory_type": {"type": "string", "enum": ["procedural", "entity", "knowledge"], "description": "Memory type. Auto-detected if omitted."},
         },
         "required": ["content"],
     },
@@ -70,6 +71,106 @@ MEMORY_PIN_SCHEMA = {
             "unpin": {"type": "boolean", "description": "Set true to unpin instead."},
         },
         "required": ["entry_id"],
+    },
+}
+
+MEMORY_RECALL_SCHEMA = {
+    "name": "memory_recall",
+    "description": (
+        "Structured recall with filters. More precise than memory_search — "
+        "supports filtering by memory type, scope, and tags."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query."},
+            "memory_type": {"type": "string", "enum": ["procedural", "entity", "knowledge"], "description": "Filter by memory type."},
+            "scope": {"type": "string", "enum": ["private", "shared"], "description": "Filter by scope."},
+            "tags": {"type": "string", "description": "Comma-separated tags to filter by."},
+            "limit": {"type": "integer", "description": "Max results (default 5)."},
+        },
+        "required": ["query"],
+    },
+}
+
+MEMORY_LIST_SCHEMA = {
+    "name": "memory_list",
+    "description": "List recent memory entries with optional filters and pagination.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "state": {"type": "string", "enum": ["raw", "promoted", "hot", "archived"], "description": "Filter by state."},
+            "scope": {"type": "string", "enum": ["private", "shared", "project"], "description": "Filter by scope."},
+            "memory_type": {"type": "string", "enum": ["procedural", "entity", "knowledge"], "description": "Filter by type."},
+            "page": {"type": "integer", "description": "Page number (default 1)."},
+            "limit": {"type": "integer", "description": "Results per page (default 10)."},
+        },
+    },
+}
+
+MEMORY_UPDATE_SCHEMA = {
+    "name": "memory_update",
+    "description": "Update the content, title, or tags of an existing memory entry.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "entry_id": {"type": "integer", "description": "The memory entry ID to update."},
+            "content": {"type": "string", "description": "New content (omit to keep current)."},
+            "title": {"type": "string", "description": "New title (omit to keep current)."},
+            "tags": {"type": "string", "description": "New comma-separated tags (omit to keep current)."},
+        },
+        "required": ["entry_id"],
+    },
+}
+
+MEMORY_ARCHIVE_SCHEMA = {
+    "name": "memory_archive",
+    "description": "Archive (soft-delete) a memory entry. Can be restored later.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "entry_id": {"type": "integer", "description": "The memory entry ID to archive."},
+        },
+        "required": ["entry_id"],
+    },
+}
+
+MEMORY_DREAM_SCHEMA = {
+    "name": "memory_dream",
+    "description": (
+        "Run a dreaming lifecycle pass. Promotes popular memories, demotes stale ones, "
+        "archives unused ones. Default is dry-run (preview only)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "dry_run": {"type": "boolean", "description": "If true, only preview changes (default true)."},
+        },
+    },
+}
+
+MEMORY_CONFLICTS_SCHEMA = {
+    "name": "memory_conflicts",
+    "description": "View open memory conflicts or resolve a specific conflict.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "conflict_id": {"type": "integer", "description": "Conflict ID to resolve (omit to list open conflicts)."},
+            "strategy": {"type": "string", "enum": ["last_write_wins", "keep_both", "merge", "dismiss"], "description": "Resolution strategy."},
+            "merged_content": {"type": "string", "description": "Merged content (required if strategy is 'merge')."},
+        },
+    },
+}
+
+MEMORY_TAG_GRAPH_SCHEMA = {
+    "name": "memory_tag_graph",
+    "description": "Explore tag relationships and co-occurrence patterns in memory.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "tag": {"type": "string", "description": "Tag to find related tags for."},
+            "action": {"type": "string", "enum": ["related", "stats"], "description": "Action: 'related' finds co-occurring tags, 'stats' shows graph overview."},
+        },
     },
 }
 
@@ -206,7 +307,12 @@ class HermesV2Provider:
         threading.Thread(target=_extract, daemon=True).start()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [MEMORY_SEARCH_SCHEMA, MEMORY_SAVE_SCHEMA, MEMORY_PIN_SCHEMA]
+        return [
+            MEMORY_SEARCH_SCHEMA, MEMORY_SAVE_SCHEMA, MEMORY_PIN_SCHEMA,
+            MEMORY_RECALL_SCHEMA, MEMORY_LIST_SCHEMA, MEMORY_UPDATE_SCHEMA,
+            MEMORY_ARCHIVE_SCHEMA, MEMORY_DREAM_SCHEMA, MEMORY_CONFLICTS_SCHEMA,
+            MEMORY_TAG_GRAPH_SCHEMA,
+        ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if not self._store:
@@ -228,11 +334,13 @@ class HermesV2Provider:
                 raw_tags = args.get("tags", "")
                 if raw_tags:
                     tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+                memory_type = args.get("memory_type", "")
                 entry = self._store.save(
                     content=args["content"],
                     title=args.get("title", ""),
                     tags=tags,
                     scope=args.get("scope", "private"),
+                    memory_type=memory_type or None,
                 )
                 entry.pop("embedding", None)
                 return json.dumps({"status": "saved", "entry": entry})
@@ -246,6 +354,84 @@ class HermesV2Provider:
                 if result:
                     result.pop("embedding", None)
                 return json.dumps({"status": "ok", "entry": result})
+
+            elif tool_name == "memory_recall":
+                tags = None
+                raw_tags = args.get("tags", "")
+                if raw_tags:
+                    tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+                results = self._store.search(
+                    args["query"],
+                    limit=int(args.get("limit", 5)),
+                    tags=tags,
+                    scope=args.get("scope"),
+                    memory_type=args.get("memory_type"),
+                )
+                for r in results:
+                    r.pop("embedding", None)
+                return json.dumps({"results": results, "count": len(results)})
+
+            elif tool_name == "memory_list":
+                result = self._store.list_entries(
+                    state=args.get("state"),
+                    scope=args.get("scope"),
+                    memory_type=args.get("memory_type"),
+                    page=int(args.get("page", 1)),
+                    limit=int(args.get("limit", 10)),
+                )
+                for r in result.get("entries", []):
+                    r.pop("embedding", None)
+                return json.dumps(result)
+
+            elif tool_name == "memory_update":
+                fields = {}
+                if args.get("content"):
+                    fields["content"] = args["content"]
+                if args.get("title"):
+                    fields["title"] = args["title"]
+                if args.get("tags"):
+                    fields["tags"] = [t.strip() for t in args["tags"].split(",") if t.strip()]
+                result = self._store.update(int(args["entry_id"]), **fields)
+                if result:
+                    result.pop("embedding", None)
+                return json.dumps({"status": "updated", "entry": result})
+
+            elif tool_name == "memory_archive":
+                result = self._store.archive(int(args["entry_id"]))
+                if result:
+                    result.pop("embedding", None)
+                return json.dumps({"status": "archived", "entry": result})
+
+            elif tool_name == "memory_dream":
+                dry_run = args.get("dry_run", True)
+                report = self._store.dreaming(dry_run=dry_run)
+                return json.dumps(report)
+
+            elif tool_name == "memory_conflicts":
+                conflict_id = args.get("conflict_id")
+                if conflict_id:
+                    strategy = args.get("strategy", "dismiss")
+                    result = self._store.resolve_conflict(
+                        conflict_id=int(conflict_id),
+                        strategy=strategy,
+                        merged_content=args.get("merged_content"),
+                    )
+                    return json.dumps({"status": "resolved", "conflict": result})
+                else:
+                    conflicts = self._store.get_conflicts("open")
+                    return json.dumps({"conflicts": conflicts, "count": len(conflicts)})
+
+            elif tool_name == "memory_tag_graph":
+                action = args.get("action", "related")
+                if action == "stats":
+                    stats = self._store.tag_graph.get_tag_stats()
+                    return json.dumps(stats)
+                else:
+                    tag = args.get("tag", "")
+                    if not tag:
+                        return json.dumps({"error": "Tag is required for 'related' action"})
+                    related = self._store.tag_graph.get_related_tags(tag)
+                    return json.dumps({"tag": tag, "related": related, "count": len(related)})
 
             from tools.registry import tool_error
             return tool_error(f"Unknown tool: {tool_name}")

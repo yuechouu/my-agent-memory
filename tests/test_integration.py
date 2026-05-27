@@ -174,3 +174,48 @@ class TestConsolidate:
         result = store.consolidate([e1["id"]])
         assert result is None
         store.close()
+
+
+class TestMemoryType:
+    def test_save_with_explicit_type(self):
+        store = make_store()
+        entry = store.save("Deploy to production", title="Deploy", memory_type="procedural")
+        assert entry["memory_type"] == "procedural"
+        store.close()
+
+    def test_save_default_type(self):
+        store = make_store()
+        entry = store.save("Some fact")
+        assert entry["memory_type"] == "knowledge"
+        store.close()
+
+    def test_search_filter_by_type(self):
+        store = make_store()
+        store.save("How to deploy", memory_type="procedural")
+        store.save("Server uses PostgreSQL", memory_type="entity")
+        store.save("Python is dynamic", memory_type="knowledge")
+        # Search filtered by type
+        results = store.search("deploy", memory_type="procedural")
+        for r in results:
+            assert r["memory_type"] == "procedural"
+        store.close()
+
+    def test_stats_includes_by_type(self):
+        store = make_store()
+        store.save("Deploy steps", memory_type="procedural")
+        store.save("Server info", memory_type="entity")
+        store.save("Python fact", memory_type="knowledge")
+        stats = store.stats()
+        assert "by_type" in stats
+        assert stats["by_type"]["procedural"] >= 1
+        assert stats["by_type"]["entity"] >= 1
+        assert stats["by_type"]["knowledge"] >= 1
+        store.close()
+
+    def test_update_memory_type(self):
+        store = make_store()
+        entry = store.save("Some fact")
+        assert entry["memory_type"] == "knowledge"
+        updated = store.update(entry["id"], memory_type="entity")
+        assert updated["memory_type"] == "entity"
+        store.close()

@@ -60,10 +60,11 @@ def _output(data, human: bool = False):
             pin = "📌 " if item.get("is_pinned") else ""
             scope = f" [{item.get('scope', '')}]" if item.get("scope") != "private" else ""
             agent = f" ({item.get('owner_agent', '')})" if item.get("owner_agent") else ""
+            mtype = f" {{{item.get('memory_type', '')}}}" if item.get("memory_type") else ""
             score = item.get("score", item.get("rrf_score", ""))
             if isinstance(score, float):
                 score = f"{score:.3f}"
-            print(f"[{item.get('id')}] {pin}{item.get('title', '(no title)')}{scope}{agent}")
+            print(f"[{item.get('id')}] {pin}{item.get('title', '(no title)')}{scope}{agent}{mtype}")
             print(f"    {item.get('content', '')[:120]}")
             print(f"    score: {score} | state: {item.get('state', '')} | access: {item.get('access_count', 0)}")
             print()
@@ -73,6 +74,9 @@ def _output(data, human: bool = False):
         print(f"States: raw={by_s.get('raw',0)} hot={by_s.get('hot',0)} promoted={by_s.get('promoted',0)} archived={by_s.get('archived',0)}")
         by_scope = data.get("by_scope", {})
         print(f"Scopes: private={by_scope.get('private',0)} shared={by_scope.get('shared',0)} project={by_scope.get('project',0)}")
+        by_type = data.get("by_type", {})
+        if by_type:
+            print(f"Types: procedural={by_type.get('procedural',0)} entity={by_type.get('entity',0)} knowledge={by_type.get('knowledge',0)}")
         if data.get("by_agent"):
             print("By agent:", json.dumps(data["by_agent"], ensure_ascii=False))
         print(f"DB: {data.get('db_path', '')}")
@@ -100,14 +104,16 @@ def _get_store_from_args(args) -> MultiAgentStore:
 def _cmd_search(args):
     s = _get_store_from_args(args)
     tags = _parse_tags(args.tags) if args.tags else None
-    _output(s.search(args.query, args.limit, args.offset, tags, scope=args.scope, agent_id=args.agent),
+    mt = getattr(args, 'memory_type', '') or None
+    _output(s.search(args.query, args.limit, args.offset, tags, scope=args.scope, agent_id=args.agent, memory_type=mt),
             human=getattr(args, "human", False))
 
 
 def _cmd_save(args):
     s = _get_store_from_args(args)
     tags = _parse_tags(args.tags) if args.tags else None
-    _output(s.save(args.content, args.title, tags, args.source or "manual", args.scope or "private", args.project),
+    mt = getattr(args, 'memory_type', '') or None
+    _output(s.save(args.content, args.title, tags, args.source or "manual", args.scope or "private", args.project, memory_type=mt),
             human=True)
 
 
@@ -144,7 +150,9 @@ def _cmd_delete(args):
 
 def _cmd_hybrid(args):
     s = _get_store_from_args(args)
-    _output(s.hybrid_search(args.query, limit=args.limit, scope=args.scope, agent_id=args.agent),
+    mt = getattr(args, 'memory_type', '') or None
+    rerank = getattr(args, 'rerank', False)
+    _output(s.hybrid_search(args.query, limit=args.limit, scope=args.scope, agent_id=args.agent, memory_type=mt, rerank=rerank),
             human=getattr(args, "human", False))
 
 
@@ -239,6 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("query"); p.add_argument("--limit", type=int, default=10)
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--tags"); p.add_argument("--scope"); p.add_argument("--agent")
+    p.add_argument("--type", dest="memory_type", default="")
     p.add_argument("--human", action="store_true")
     p.set_defaults(handler=_cmd_search)
 
@@ -247,6 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("content"); p.add_argument("--title", default="")
     p.add_argument("--tags"); p.add_argument("--source", default="manual")
     p.add_argument("--scope", default="private"); p.add_argument("--project")
+    p.add_argument("--type", dest="memory_type", default="",
+                   choices=["procedural", "entity", "knowledge", ""],
+                   help="Memory type (auto-detected if omitted)")
     p.set_defaults(handler=_cmd_save)
 
     # get
@@ -275,7 +287,10 @@ def build_parser() -> argparse.ArgumentParser:
     # hybrid
     p = sub.add_parser("hybrid", help="Hybrid search (FTS5 + vector + RRF)")
     p.add_argument("query"); p.add_argument("--limit", type=int, default=10)
-    p.add_argument("--scope"); p.add_argument("--agent"); p.add_argument("--human", action="store_true")
+    p.add_argument("--scope"); p.add_argument("--agent")
+    p.add_argument("--type", dest="memory_type", default="")
+    p.add_argument("--rerank", action="store_true", help="Apply semantic reranking")
+    p.add_argument("--human", action="store_true")
     p.set_defaults(handler=_cmd_hybrid)
 
     # status

@@ -58,8 +58,22 @@ class MultiAgentStore:
                 batch_size=embed_config.get("batch_size", 10),
             )
 
+        # Reranker (optional, same API key as embedding)
+        self._reranker = None
+        if api_key:
+            try:
+                from my_agent_memory.reranker import Reranker
+                reranker_config = self.config.get("reranker", {})
+                self._reranker = Reranker(
+                    api_key=api_key,
+                    base_url=reranker_config.get("base_url", embed_config.get("base_url", "https://api.siliconflow.cn/v1")),
+                    model=reranker_config.get("model", "BAAI/bge-reranker-v2-m3"),
+                )
+            except Exception:
+                pass  # Best-effort
+
         # Search
-        self._search = HybridSearch(self.db, self.embed_client)
+        self._search = HybridSearch(self.db, self.embed_client, self._reranker)
 
         # Dreaming
         self.dreaming_engine = DreamingEngine(
@@ -71,6 +85,10 @@ class MultiAgentStore:
 
         # Conflicts
         self.conflict_resolver = ConflictResolver(self.db)
+
+        # TagGraph
+        from my_agent_memory.tag_graph import TagGraph
+        self.tag_graph = TagGraph(self.db)
 
     def _get_api_key(self) -> str:
         """Get SiliconFlow API key from config, env, or auth file."""
@@ -95,8 +113,13 @@ class MultiAgentStore:
         source: str = "manual",
         scope: str = "private",
         project: str = None,
+        memory_type: str = None,
     ) -> dict:
         """Save a new memory entry. Validates content before writing.
+
+        Args:
+            memory_type: One of 'procedural', 'entity', 'knowledge'.
+                         If None, defaults to 'knowledge' and auto-detected async.
 
         Returns:
             Entry dict on success. Raises ValueError on validation failure.
@@ -113,6 +136,7 @@ class MultiAgentStore:
             owner_agent=self.agent_id,
             scope=scope,
             project=project,
+            memory_type=memory_type or "knowledge",
             audit_agent=self.agent_id,
         )
 
@@ -126,7 +150,18 @@ class MultiAgentStore:
 
         # Async tag suggestion when no tags provided
         if result and not tags:
-            self._schedule_tag_suggestion(result["id"], content, title)
+            self._schedule_tag_suggestion(result["id"], content, title, memory_type=memory_type or "knowledge")
+
+        # Async type detection when not explicitly provided
+        if result and not memory_type:
+            self._schedule_type_detection(result["id"], content, title)
+
+        # Update tag co-occurrence graph
+        if result and tags and len(tags) >= 2:
+            try:
+                self.tag_graph.update_cooccurrence(tags)
+            except Exception:
+                pass  # Best-effort
 
         return result
 
@@ -181,6 +216,7 @@ class MultiAgentStore:
         scope: str = None,
         agent_id: str = None,
         source: str = None,
+        memory_type: str = None,
     ) -> list[dict]:
         """FTS5 full-text search with visibility filtering.
 
@@ -192,6 +228,7 @@ class MultiAgentStore:
             scope: Filter by scope (private/shared/project).
             agent_id: Filter by owner agent. Defaults to self.agent_id.
             source: Filter by source type.
+            memory_type: Filter by memory type (procedural/entity/knowledge).
         """
         return self.db.search(
             query,
@@ -200,6 +237,7 @@ class MultiAgentStore:
             offset=offset,
             tags=tags,
             scope=scope,
+            memory_type=memory_type,
         )
 
     def hybrid_search(
@@ -209,10 +247,12 @@ class MultiAgentStore:
         scope: str = None,
         agent_id: str = None,
         project: str = None,
+        memory_type: str = None,
         fts_weight: float = 0.5,
         vec_weight: float = 0.5,
+        rerank: bool = False,
     ) -> list[dict]:
-        """Hybrid search: FTS5 + vector + RRF fusion.
+        """Hybrid search: FTS5 + vector + RRF fusion, optional reranking.
 
         Falls back to FTS5-only if vector search is unavailable.
         """
@@ -222,8 +262,10 @@ class MultiAgentStore:
             limit=limit,
             scope=scope,
             project=project,
+            memory_type=memory_type,
             fts_weight=fts_weight,
             vec_weight=vec_weight,
+            rerank=rerank,
         )
 
     # ── Dreaming ─────────────────────────────────────────────
@@ -424,9 +466,11 @@ class MultiAgentStore:
         t = threading.Thread(target=_run, daemon=True)
         t.start()
 
-    def _schedule_tag_suggestion(self, entry_id: int, content: str, title: str = ""):
+    def _schedule_tag_suggestion(self, entry_id: int, content: str, title: str = "",
+                                  memory_type: str = "knowledge"):
         """Suggest tags for an entry via LLM if none were provided.
 
+        Uses existing tag pool for context-aware suggestions.
         Runs asynchronously in a daemon thread. Updates the entry's tags when done.
         """
         import threading
@@ -436,13 +480,48 @@ class MultiAgentStore:
                 from my_agent_memory.llm import (
                     LLMClient, build_suggest_tags_messages, parse_suggest_tags_response,
                 )
+                from my_agent_memory.validate import validate_tags
+
+                # Get existing tags for context
+                try:
+                    existing_tags = self.db.get_tag_frequencies(limit=30)
+                except Exception:
+                    existing_tags = []
+
                 llm = LLMClient()
-                messages = build_suggest_tags_messages(title, content)
+                messages = build_suggest_tags_messages(title, content, memory_type, existing_tags)
                 response = llm.chat(messages, temperature=0.1, max_tokens=100)
                 if response:
                     tags = parse_suggest_tags_response(response)
                     if tags:
-                        self.db.update(entry_id, tags=tags)
+                        valid, _ = validate_tags(tags)
+                        if valid:
+                            self.db.update(entry_id, tags=tags)
+            except Exception:
+                pass  # Best-effort, non-critical
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
+    def _schedule_type_detection(self, entry_id: int, content: str, title: str = ""):
+        """Detect memory type via LLM if not explicitly set.
+
+        Runs asynchronously in a daemon thread. Updates the entry's memory_type when done.
+        """
+        import threading
+
+        def _run():
+            try:
+                from my_agent_memory.llm import (
+                    LLMClient, build_type_detect_messages, parse_type_detect_response,
+                )
+                llm = LLMClient()
+                messages = build_type_detect_messages(title, content)
+                response = llm.chat(messages, temperature=0.1, max_tokens=20)
+                if response:
+                    detected = parse_type_detect_response(response)
+                    if detected:
+                        self.db.update(entry_id, memory_type=detected)
             except Exception:
                 pass  # Best-effort, non-critical
 

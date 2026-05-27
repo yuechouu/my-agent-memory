@@ -1,0 +1,8 @@
+{
+  "name": "pi-memory",
+  "version": "1.0.0",
+  "description": "Persistent memory for Pi Coding Agent via my-agent-memory",
+  "pi": {
+    "extensions": ["pi-memory.ts"]
+  }
+}

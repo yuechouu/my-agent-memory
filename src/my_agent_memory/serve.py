@@ -52,8 +52,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_json(self.store.get_conflicts("open"))
         elif path == "/api/stats":
             self._handle_json(self.store.stats())
+        elif path == "/api/search":
+            self._handle_json(self._fts_search(params))
         elif path == "/api/hybrid":
             self._handle_json(self._hybrid_search(params))
+        elif path == "/api/tag-graph":
+            self._handle_json(self._tag_graph(params))
         elif path == "/api/system-prompt":
             agent = params.get("agent", self.store.agent_id)
             max_chars = int(params["max_chars"]) if params.get("max_chars") else None
@@ -127,6 +131,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         else:
             self._error(404, "Not found")
 
+    def _fts_search(self, params: dict):
+        query = params.get("q", "")
+        if not query:
+            return {"error": "Missing query parameter 'q'", "results": []}
+        return self.store.search(
+            query,
+            limit=int(params.get("limit", 10)),
+            scope=params.get("scope"),
+            agent_id=params.get("agent"),
+            memory_type=params.get("memory_type"),
+        )
+
     def _hybrid_search(self, params: dict):
         query = params.get("q", "")
         if not query:
@@ -137,7 +153,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             agent_id=params.get("agent", "*"),
             scope=params.get("scope"),
             project=params.get("project"),
+            memory_type=params.get("memory_type"),
+            rerank=params.get("rerank", "").lower() == "true",
         )
+
+    def _tag_graph(self, params: dict):
+        action = params.get("action", "stats")
+        tag = params.get("tag", "")
+        if action == "related" and tag:
+            return {"tag": tag, "related": self.store.tag_graph.get_related_tags(tag)}
+        return self.store.tag_graph.get_tag_stats()
 
     def _list_entries(self, params: dict):
         return self.store.list_entries(

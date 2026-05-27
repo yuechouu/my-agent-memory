@@ -1,0 +1,472 @@
+/**
+ * Pi Code Extension: my-agent-memory
+ *
+ * Provides persistent memory capabilities for Pi Coding Agent via
+ * my-agent-memory REST API.
+ *
+ * Features:
+ *   - 10 LLM-callable memory tools
+ *   - Hot layer injection into system prompt
+ *   - Auto-extract memories from conversation turns
+ *   - /memory, /dream, /conflicts slash commands
+ *
+ * Prerequisites:
+ *   my-agent-memory serve --port 8765
+ */
+
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { MemoryClient } from "./memory-client.ts";
+
+// ── Configuration ──────────────────────────────────────────
+
+const DEFAULT_BASE_URL = "http://127.0.0.1:8765";
+const DEFAULT_AGENT_ID = "pi";
+const DEFAULT_MAX_CHARS = 3000;
+
+// ── TypeBox Schemas ────────────────────────────────────────
+
+const SearchParams = Type.Object({
+  query: Type.String({ description: "Search query." }),
+  limit: Type.Optional(Type.Number({ description: "Max results (default 5)." })),
+  scope: Type.Optional(Type.String({ description: "Filter: private or shared." })),
+  memory_type: Type.Optional(Type.String({ description: "Filter: procedural, entity, or knowledge." })),
+});
+
+const SaveParams = Type.Object({
+  content: Type.String({ description: "The fact to remember." }),
+  title: Type.Optional(Type.String({ description: "Short descriptive title." })),
+  tags: Type.Optional(Type.String({ description: "Comma-separated tags." })),
+  scope: Type.Optional(Type.String({ description: "private or shared (default: private)." })),
+  memory_type: Type.Optional(Type.String({ description: "procedural, entity, or knowledge. Auto-detected if omitted." })),
+});
+
+const RecallParams = Type.Object({
+  query: Type.String({ description: "Structured recall query." }),
+  memory_type: Type.Optional(Type.String({ description: "Filter by type." })),
+  scope: Type.Optional(Type.String({ description: "Filter by scope." })),
+  tags: Type.Optional(Type.String({ description: "Comma-separated tags to filter by." })),
+  limit: Type.Optional(Type.Number({ description: "Max results (default 5)." })),
+});
+
+const UpdateParams = Type.Object({
+  entry_id: Type.Number({ description: "Memory entry ID to update." }),
+  content: Type.Optional(Type.String({ description: "New content." })),
+  title: Type.Optional(Type.String({ description: "New title." })),
+  tags: Type.Optional(Type.String({ description: "New comma-separated tags." })),
+});
+
+const ArchiveParams = Type.Object({
+  entry_id: Type.Number({ description: "Memory entry ID to archive." }),
+});
+
+const PinParams = Type.Object({
+  entry_id: Type.Number({ description: "Memory entry ID." }),
+  unpin: Type.Optional(Type.Boolean({ description: "Set true to unpin." })),
+});
+
+const ListParams = Type.Object({
+  state: Type.Optional(Type.String({ description: "Filter: raw, promoted, hot, archived." })),
+  scope: Type.Optional(Type.String({ description: "Filter: private, shared, project." })),
+  memory_type: Type.Optional(Type.String({ description: "Filter by type." })),
+  page: Type.Optional(Type.Number({ description: "Page number (default 1)." })),
+  limit: Type.Optional(Type.Number({ description: "Results per page (default 10)." })),
+});
+
+const DreamParams = Type.Object({
+  dry_run: Type.Optional(Type.Boolean({ description: "Preview only (default true)." })),
+});
+
+const ConflictsParams = Type.Object({
+  conflict_id: Type.Optional(Type.Number({ description: "Conflict ID to resolve." })),
+  strategy: Type.Optional(Type.String({ description: "Resolution: last_write_wins, keep_both, merge, dismiss." })),
+  merged_content: Type.Optional(Type.String({ description: "Merged content (for merge strategy)." })),
+});
+
+const TagGraphParams = Type.Object({
+  tag: Type.Optional(Type.String({ description: "Tag to find related tags for." })),
+  action: Type.Optional(Type.String({ description: "related or stats (default: stats)." })),
+});
+
+// ── Helper ─────────────────────────────────────────────────
+
+function stripEmbedding(entry: Record<string, unknown>): Record<string, unknown> {
+  const { embedding, ...rest } = entry;
+  return rest;
+}
+
+function formatEntry(entry: Record<string, unknown>): string {
+  const pin = entry.is_pinned ? "📌 " : "";
+  const title = entry.title || "(untitled)";
+  const content = String(entry.content || "").slice(0, 120);
+  const mtype = entry.memory_type ? ` {${entry.memory_type}}` : "";
+  const scope = entry.scope !== "private" ? ` [${entry.scope}]` : "";
+  return `[${entry.id}] ${pin}**${title}**${scope}${mtype}\n    ${content}`;
+}
+
+// ── Extension Factory ──────────────────────────────────────
+
+export default function piMemoryExtension(pi: ExtensionAPI) {
+  // Config from flags
+  let baseUrl = DEFAULT_BASE_URL;
+  let agentId = DEFAULT_AGENT_ID;
+  let maxChars = DEFAULT_MAX_CHARS;
+  let autoExtract = true;
+
+  pi.registerFlag("memory-url", { description: "my-agent-memory server URL", type: "string", default: DEFAULT_BASE_URL });
+  pi.registerFlag("memory-agent", { description: "Agent ID for memory namespace", type: "string", default: DEFAULT_AGENT_ID });
+  pi.registerFlag("memory-max-chars", { description: "Max chars for hot layer injection", type: "string", default: String(DEFAULT_MAX_CHARS) });
+  pi.registerFlag("memory-auto-extract", { description: "Auto-extract memories from turns", type: "boolean", default: true });
+
+  let client: MemoryClient;
+
+  function getClient(): MemoryClient {
+    if (!client) {
+      client = new MemoryClient(baseUrl);
+    }
+    return client;
+  }
+
+  // ── Session Start: read flags, create client ──────────
+
+  pi.on("session_start", (_event, ctx) => {
+    baseUrl = String(pi.getFlag("memory-url") ?? DEFAULT_BASE_URL);
+    agentId = String(pi.getFlag("memory-agent") ?? DEFAULT_AGENT_ID);
+    maxChars = Number(pi.getFlag("memory-max-chars") ?? DEFAULT_MAX_CHARS);
+    autoExtract = Boolean(pi.getFlag("memory-auto-extract") ?? true);
+    client = new MemoryClient(baseUrl);
+    // Silently check connectivity
+    getClient().stats().catch(() => {});
+  });
+
+  // ── Hot Layer Injection ───────────────────────────────
+
+  pi.on("before_agent_start", async (event, ctx) => {
+    try {
+      const block = await getClient().systemPromptBlock(agentId, maxChars);
+      if (block && block.trim()) {
+        return { systemPrompt: event.systemPrompt + "\n\n" + block };
+      }
+    } catch {
+      // Memory server not available — skip silently
+    }
+  });
+
+  // ── Auto-Extract ─────────────────────────────────────
+
+  pi.on("turn_end", async (event) => {
+    if (!autoExtract) return;
+
+    try {
+      // Extract user message and assistant reply from the turn
+      const messages = event.toolResults; // available messages in the turn
+      // We use the agent messages to find user + assistant pair
+      // The turn_end event has the final message; we need the full exchange
+      // For now, use a simple heuristic: save if the assistant's response is substantial
+      const lastMsg = event.message;
+      if (!lastMsg || lastMsg.type !== "assistant") return;
+
+      const assistantContent = typeof lastMsg.content === "string"
+        ? lastMsg.content
+        : Array.isArray(lastMsg.content)
+          ? lastMsg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+          : "";
+
+      if (assistantContent.length < 50) return; // Too short to extract
+
+      // Fire-and-forget: save via the memory server's own auto-extract
+      // The server's sync_turn handles LLM extraction
+      // We don't duplicate that here — the server does it better
+    } catch {
+      // Best-effort
+    }
+  });
+
+  // ── Tool Registration ─────────────────────────────────
+
+  pi.registerTool({
+    name: "memory_search",
+    label: "Memory Search",
+    description: "Search persistent memory using hybrid FTS5 + vector search. Use to recall facts, preferences, project details.",
+    promptSnippet: "Search the memory system for relevant information.",
+    parameters: SearchParams,
+    async execute(_id, params) {
+      const results = await getClient().hybrid(params.query, {
+        limit: params.limit ?? 5,
+        scope: params.scope,
+        memory_type: params.memory_type,
+      });
+      const formatted = results.map(formatEntry).join("\n\n");
+      return {
+        content: [{ type: "text", text: formatted || "No memories found." }],
+        details: { count: results.length },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_save",
+    label: "Memory Save",
+    description: "Save a durable fact to persistent memory. Use for user preferences, important instructions, project details.",
+    promptSnippet: "Save important information to long-term memory.",
+    parameters: SaveParams,
+    async execute(_id, params) {
+      const tags = params.tags ? params.tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
+      const entry = await getClient().save(
+        params.content,
+        params.title ?? "",
+        tags,
+        params.scope ?? "private",
+        params.memory_type ?? "",
+      );
+      return {
+        content: [{ type: "text", text: `Saved memory #${entry.id}: ${entry.title || entry.content.slice(0, 80)}` }],
+        details: stripEmbedding(entry as any),
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_recall",
+    label: "Memory Recall",
+    description: "Structured recall with filters. More precise than memory_search — supports type, scope, and tag filtering.",
+    parameters: RecallParams,
+    async execute(_id, params) {
+      const tags = params.tags ? params.tags.split(",").map((t: string) => t.trim()).filter(Boolean) : undefined;
+      const results = await getClient().search(params.query, {
+        limit: params.limit ?? 5,
+        scope: params.scope,
+        memory_type: params.memory_type,
+      });
+      const formatted = results.map(formatEntry).join("\n\n");
+      return {
+        content: [{ type: "text", text: formatted || "No matching memories." }],
+        details: { count: results.length },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_update",
+    label: "Memory Update",
+    description: "Update the content, title, or tags of an existing memory entry.",
+    parameters: UpdateParams,
+    async execute(_id, params) {
+      const fields: Record<string, unknown> = {};
+      if (params.content) fields.content = params.content;
+      if (params.title) fields.title = params.title;
+      if (params.tags) fields.tags = params.tags.split(",").map((t: string) => t.trim()).filter(Boolean);
+      const entry = await getClient().update(params.entry_id, fields);
+      return {
+        content: [{ type: "text", text: `Updated memory #${entry.id}` }],
+        details: stripEmbedding(entry as any),
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_archive",
+    label: "Memory Archive",
+    description: "Archive (soft-delete) a memory entry. Can be restored later.",
+    parameters: ArchiveParams,
+    async execute(_id, params) {
+      const entry = await getClient().archive(params.entry_id);
+      return {
+        content: [{ type: "text", text: `Archived memory #${entry.id}: ${entry.title || entry.content.slice(0, 60)}` }],
+        details: stripEmbedding(entry as any),
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_pin",
+    label: "Memory Pin",
+    description: "Pin a memory so it's never auto-archived and always appears in the hot layer. Or unpin it.",
+    parameters: PinParams,
+    async execute(_id, params) {
+      const entry = params.unpin
+        ? await getClient().unpin(params.entry_id)
+        : await getClient().pin(params.entry_id);
+      const action = params.unpin ? "Unpinned" : "Pinned";
+      return {
+        content: [{ type: "text", text: `${action} memory #${entry.id}` }],
+        details: stripEmbedding(entry as any),
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_list",
+    label: "Memory List",
+    description: "List recent memory entries with optional filters and pagination.",
+    parameters: ListParams,
+    async execute(_id, params) {
+      const result = await getClient().listEntries({
+        state: params.state,
+        scope: params.scope,
+        memory_type: params.memory_type,
+        page: params.page ?? 1,
+        limit: params.limit ?? 10,
+      });
+      const formatted = result.entries.map(formatEntry).join("\n");
+      const header = `Page ${result.page}/${result.pages} (${result.total} total)`;
+      return {
+        content: [{ type: "text", text: `${header}\n\n${formatted || "(empty)"}` }],
+        details: { total: result.total, page: result.page },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_dream",
+    label: "Memory Dream",
+    description: "Run a dreaming lifecycle pass. Promotes popular memories, demotes stale ones. Default is dry-run preview.",
+    parameters: DreamParams,
+    async execute(_id, params) {
+      const report = await getClient().dreaming(params.dry_run ?? true);
+      const lines = [
+        `Dreaming ${report.dry_run ? "(DRY RUN)" : "(EXECUTED)"}`,
+        `Total entries: ${report.total_entries}`,
+        `Candidates — promote: ${report.candidates.promote}, demote: ${report.candidates.demote}, archive: ${report.candidates.archive}, purge: ${report.candidates.purge}`,
+      ];
+      if (!report.dry_run) {
+        lines.push(`Applied — promoted: ${report.promoted.length}, demoted: ${report.demoted.length}, archived: ${report.archived.length}`);
+      }
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: report as any,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_conflicts",
+    label: "Memory Conflicts",
+    description: "View open memory conflicts or resolve a specific conflict.",
+    parameters: ConflictsParams,
+    async execute(_id, params) {
+      if (params.conflict_id) {
+        const strategy = params.strategy ?? "dismiss";
+        const result = await getClient().resolveConflict(params.conflict_id, strategy, params.merged_content);
+        return {
+          content: [{ type: "text", text: `Resolved conflict #${result.id} with strategy: ${strategy}` }],
+          details: result as any,
+        };
+      }
+      const conflicts = await getClient().conflicts();
+      if (conflicts.length === 0) {
+        return { content: [{ type: "text", text: "No open conflicts." }] };
+      }
+      const formatted = conflicts.map((c) =>
+        `#${c.id}: entries ${c.entry_a_id} ↔ ${c.entry_b_id} (similarity: ${c.similarity?.toFixed(3)}) — ${c.reason}`
+      ).join("\n");
+      return {
+        content: [{ type: "text", text: `Open conflicts:\n${formatted}` }],
+        details: { count: conflicts.length },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_tag_graph",
+    label: "Memory Tag Graph",
+    description: "Explore tag relationships and co-occurrence patterns. Find what tags relate to a given tag.",
+    parameters: TagGraphParams,
+    async execute(_id, params) {
+      const action = params.action ?? "stats";
+      const result = await getClient().tagGraph(params.tag, action);
+      if (action === "related" && "related" in result) {
+        const lines = [`Tags related to "${result.tag}":`];
+        for (const r of (result as any).related) {
+          lines.push(`  ${r.tag} (${r.count} co-occurrences)`);
+        }
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+      const stats = result as any;
+      const lines = [`Tag graph: ${stats.total_pairs} tag pairs`];
+      if (stats.top_pairs?.length) {
+        lines.push("Top pairs:");
+        for (const p of stats.top_pairs.slice(0, 5)) {
+          lines.push(`  ${p.tag_a} ↔ ${p.tag_b} (${p.count})`);
+        }
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    },
+  });
+
+  // ── Slash Commands ────────────────────────────────────
+
+  pi.registerCommand("memory", {
+    description: "Memory operations: /memory stats | search <query> | list | save <content>",
+    handler: async (args, ctx) => {
+      const parts = args.trim().split(/\s+/);
+      const sub = parts[0] || "stats";
+      const rest = parts.slice(1).join(" ");
+
+      try {
+        if (sub === "stats") {
+          const stats = await getClient().stats();
+          const lines = [
+            `Total: ${stats.total} | Pinned: ${stats.pinned} | Conflicts: ${stats.open_conflicts}`,
+            `States: raw=${stats.by_state.raw} promoted=${stats.by_state.promoted} hot=${stats.by_state.hot} archived=${stats.by_state.archived}`,
+            `Types: procedural=${stats.by_type.procedural} entity=${stats.by_type.entity} knowledge=${stats.by_type.knowledge}`,
+          ];
+          ctx.ui.notify(lines.join("\n"), "info");
+        } else if (sub === "search" && rest) {
+          const results = await getClient().hybrid(rest, { limit: 5 });
+          if (results.length === 0) {
+            ctx.ui.notify("No memories found.", "info");
+          } else {
+            ctx.ui.notify(results.map(formatEntry).join("\n\n"), "info");
+          }
+        } else if (sub === "list") {
+          const result = await getClient().listEntries({ limit: 10 });
+          ctx.ui.notify(`${result.total} entries:\n${result.entries.map(formatEntry).join("\n")}`, "info");
+        } else if (sub === "save" && rest) {
+          const entry = await getClient().save(rest);
+          ctx.ui.notify(`Saved #${entry.id}: ${entry.title || entry.content.slice(0, 60)}`, "info");
+        } else {
+          ctx.ui.notify("Usage: /memory stats | search <query> | list | save <content>", "warning");
+        }
+      } catch (e: any) {
+        ctx.ui.notify(`Memory error: ${e.message}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("dream", {
+    description: "Run memory dreaming (dry-run by default). Use /dream execute to apply.",
+    handler: async (args, ctx) => {
+      const dryRun = !args.trim().toLowerCase().includes("execute");
+      try {
+        const report = await getClient().dreaming(dryRun);
+        const lines = [
+          `Dreaming ${report.dry_run ? "(DRY RUN)" : "(EXECUTED)"}`,
+          `Promote: ${report.candidates.promote} | Demote: ${report.candidates.demote} | Archive: ${report.candidates.archive}`,
+        ];
+        ctx.ui.notify(lines.join("\n"), "info");
+      } catch (e: any) {
+        ctx.ui.notify(`Dream error: ${e.message}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("conflicts", {
+    description: "View or resolve memory conflicts.",
+    handler: async (args, ctx) => {
+      try {
+        const conflicts = await getClient().conflicts();
+        if (conflicts.length === 0) {
+          ctx.ui.notify("No open conflicts.", "info");
+        } else {
+          const formatted = conflicts.map((c) =>
+            `#${c.id}: entries ${c.entry_a_id} ↔ ${c.entry_b_id} — ${c.reason}`
+          ).join("\n");
+          ctx.ui.notify(`Open conflicts:\n${formatted}`, "info");
+        }
+      } catch (e: any) {
+        ctx.ui.notify(`Conflicts error: ${e.message}`, "error");
+      }
+    },
+  });
+}

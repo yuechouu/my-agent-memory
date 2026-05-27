@@ -56,6 +56,8 @@ class Database:
         self.conn.commit()
         # Auto-migrate: add validation_status if missing (v2.1 schema update)
         add_column_if_missing(self.conn, "memory_entries", "validation_status", "TEXT")
+        # Auto-migrate: add memory_type if missing (v2.2 schema update)
+        add_column_if_missing(self.conn, "memory_entries", "memory_type", "TEXT NOT NULL DEFAULT 'knowledge'")
 
     def _init_vector(self):
         """Load sqlite-vec extension and create vector table if not exists."""
@@ -97,6 +99,7 @@ class Database:
     def insert(self, content: str, title: str = "", tags: list = None,
                source: str = "manual", owner_agent: str = "noor",
                scope: str = "private", project: str = None,
+               memory_type: str = "knowledge",
                audit_agent: str = "") -> dict:
         """Insert a new memory entry. Returns the new row as dict.
 
@@ -129,9 +132,9 @@ class Database:
         cursor = self.execute(
             """INSERT INTO memory_entries
                (content, title, tags, source, checksum, owner_agent, scope, project,
-                state, last_access_ts)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'raw', datetime('now'))""",
-            (content, title, tag_str, source, ck, owner_agent, scope, project),
+                memory_type, state, last_access_ts)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'raw', datetime('now'))""",
+            (content, title, tag_str, source, ck, owner_agent, scope, project, memory_type),
         )
         self.commit()
         result = _enrich_row(
@@ -158,7 +161,8 @@ class Database:
         return None
 
     def update(self, entry_id: int, content: str = None, title: str = None,
-               tags: list = None, scope: str = None, project: str = None) -> Optional[dict]:
+               tags: list = None, scope: str = None, project: str = None,
+               memory_type: str = None) -> Optional[dict]:
         """Update an entry. Only provided fields are changed."""
         row = self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,))
         if not row:
@@ -169,14 +173,15 @@ class Database:
         new_tags = json.dumps(tags, ensure_ascii=False) if tags is not None else row["tags"]
         new_scope = scope if scope is not None else row["scope"]
         new_project = project if project is not None else row["project"]
+        new_type = memory_type if memory_type is not None else row["memory_type"]
         ck = hashlib.md5(new_content.encode()).hexdigest()[:12]
 
         self.execute(
             """UPDATE memory_entries
                SET content = ?, title = ?, tags = ?, checksum = ?,
-                   scope = ?, project = ?, updated_at = datetime('now')
+                   scope = ?, project = ?, memory_type = ?, updated_at = datetime('now')
                WHERE id = ?""",
-            (new_content, new_title, new_tags, ck, new_scope, new_project, entry_id),
+            (new_content, new_title, new_tags, ck, new_scope, new_project, new_type, entry_id),
         )
         self.commit()
         return _enrich_row(
@@ -352,7 +357,8 @@ class Database:
         return f"({' OR '.join(conditions)})", params
 
     def search(self, query: str, agent_id: str = "*", limit: int = 10, offset: int = 0,
-               tags: list = None, scope: str = None, project: str = None) -> list:
+               tags: list = None, scope: str = None, project: str = None,
+               memory_type: str = None) -> list:
         """FTS5 full-text search with CJK LIKE fallback and visibility filtering."""
         import re
 
@@ -361,6 +367,10 @@ class Database:
 
         where = ["memory_fts MATCH ?", vis_filter, "e.deleted_at IS NULL", "e.state != 'archived'"]
         params = [query] + vis_params
+
+        if memory_type:
+            where.append("e.memory_type = ?")
+            params.append(memory_type)
 
         if tags:
             tag_cond = " OR ".join(["e.tags LIKE ?" for _ in tags])
@@ -535,7 +545,8 @@ class Database:
 
     # ── Hot Layer ────────────────────────────────────────────
 
-    def get_hot_entries(self, agent_id: str, include_shared: bool = True) -> list:
+    def get_hot_entries(self, agent_id: str, include_shared: bool = True,
+                        memory_type: str = None) -> list:
         """Get entries that should appear in the hot layer (promoted + hot)."""
         conditions = [
             "(e.state IN ('promoted', 'hot'))",
@@ -548,6 +559,10 @@ class Database:
         else:
             conditions.append(f"(e.owner_agent = ? AND e.scope != 'shared')")
         params.append(agent_id)
+
+        if memory_type:
+            conditions.append("e.memory_type = ?")
+            params.append(memory_type)
 
         rows = self.fetchall(f"""
             SELECT * FROM memory_entries e
@@ -712,6 +727,13 @@ class Database:
             "SELECT owner_agent, COUNT(*) as n FROM memory_entries WHERE deleted_at IS NULL GROUP BY owner_agent"
         ):
             by_agent[row["owner_agent"]] = row["n"]
+        by_type = {}
+        for mt in ("procedural", "entity", "knowledge"):
+            n = self.fetchone(
+                "SELECT COUNT(*) as n FROM memory_entries WHERE memory_type = ? AND deleted_at IS NULL",
+                (mt,),
+            )["n"]
+            by_type[mt] = n
         pinned = self.fetchone(
             "SELECT COUNT(*) as n FROM memory_entries WHERE is_pinned = 1 AND deleted_at IS NULL"
         )["n"]
@@ -727,6 +749,7 @@ class Database:
             "archived": by_state.get("archived", 0),
             "by_state": by_state,
             "by_scope": by_scope,
+            "by_type": by_type,
             "by_agent": by_agent,
             "pinned": pinned,
             "open_conflicts": open_conflicts,
@@ -734,7 +757,26 @@ class Database:
             "db_path": str(self.path),
         }
 
+    def get_tag_frequencies(self, limit: int = 50) -> list:
+        """Get tag frequency table across all active entries.
+
+        Returns: [{"tag": "python", "count": 12}, ...] sorted by count desc.
+        """
+        rows = self.fetchall(
+            "SELECT tags FROM memory_entries WHERE deleted_at IS NULL AND state != 'archived'"
+        )
+        from collections import Counter
+        counter = Counter()
+        for row in rows:
+            try:
+                tags = json.loads(row["tags"])
+                counter.update(tags)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return [{"tag": t, "count": c} for t, c in counter.most_common(limit)]
+
     def list_entries(self, agent_id: str = None, scope: str = None, state: str = None,
+                     memory_type: str = None,
                      page: int = 1, limit: int = 20, query: str = None,
                      sort_by: str = "", sort_order: str = "desc") -> dict:
         """Paginated entry listing with filters and sort (for dashboard API)."""
@@ -750,6 +792,9 @@ class Database:
         if state:
             where.append("e.state = ?")
             params.append(state)
+        if memory_type:
+            where.append("e.memory_type = ?")
+            params.append(memory_type)
         if query:
             where.append("(e.content LIKE ? OR e.title LIKE ?)")
             params.extend([f"%{query}%", f"%{query}%"])

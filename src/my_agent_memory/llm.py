@@ -21,7 +21,7 @@ DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 DEFAULT_MODEL = "mimo-v2.5-pro"
 DEFAULT_TIMEOUT = 60  # seconds
 
-__all__ = ["LLMClient", "LLMError", "build_consolidate_messages", "parse_consolidate_response", "build_extract_messages", "parse_extract_response", "build_suggest_tags_messages", "parse_suggest_tags_response"]
+__all__ = ["LLMClient", "LLMError", "build_consolidate_messages", "parse_consolidate_response", "build_extract_messages", "parse_extract_response", "build_suggest_tags_messages", "parse_suggest_tags_response", "build_type_detect_messages", "parse_type_detect_response"]
 
 
 class LLMError(Exception):
@@ -259,22 +259,89 @@ def parse_extract_response(text: str) -> dict | None:
     return {"title": title.strip('"').strip(), "content": content.strip(), "tags": tags}
 
 
-TAG_SUGGEST_PROMPT = """Suggest 3-5 short tags for this memory entry. Tags should be lowercase, single words or hyphenated.
-Output ONLY comma-separated tags, nothing else.
+TAG_SUGGEST_PROMPT = """Suggest 3-5 tags for this memory entry.
+
+Rules:
+- Tags must be lowercase, single words or hyphenated (e.g. "machine-learning", "docker", "python")
+- Prefer reusing existing tags when semantically appropriate
+- Tags should be specific and searchable, not generic (avoid "misc", "other", "todo")
 
 Title: {title}
-Content: {content}"""
+Content: {content}
+Type: {memory_type}
+{existing_tags_section}
+
+Reply ONLY with a JSON array of tags, e.g. ["python", "fastapi", "deployment"]"""
 
 
-def build_suggest_tags_messages(title: str, content: str) -> list[dict]:
-    """Build LLM messages for tag suggestion."""
+def build_suggest_tags_messages(title: str, content: str, memory_type: str = "",
+                                 existing_tags: list = None) -> list[dict]:
+    """Build LLM messages for tag suggestion.
+
+    Args:
+        title: Entry title.
+        content: Entry content.
+        memory_type: Memory type (procedural/entity/knowledge).
+        existing_tags: Output of db.get_tag_frequencies() — [{"tag": "python", "count": 12}, ...].
+    """
+    existing_section = ""
+    if existing_tags:
+        tag_list = ", ".join(f"{t['tag']} ({t['count']})" for t in existing_tags[:30])
+        existing_section = f"Existing tags (prefer reuse): {tag_list}"
+    else:
+        existing_section = "Existing tags: (none yet)"
+
     return [
-        {"role": "user", "content": TAG_SUGGEST_PROMPT.format(title=title, content=content[:500])},
+        {"role": "user", "content": TAG_SUGGEST_PROMPT.format(
+            title=title or "(untitled)",
+            content=content[:500],
+            memory_type=memory_type or "unknown",
+            existing_tags_section=existing_section,
+        )},
     ]
 
 
 def parse_suggest_tags_response(text: str) -> list[str]:
-    """Parse LLM tag suggestion response into a list of tags."""
-    tags = [t.strip().lower() for t in text.strip().split(",") if t.strip()]
-    # Filter out tags that are too long or contain weird chars
+    """Parse LLM tag suggestion response. Tries JSON array first, falls back to comma-split."""
+    text = text.strip()
+    # Try JSON array
+    try:
+        import json
+        tags = json.loads(text)
+        if isinstance(tags, list):
+            return [t.strip().lower() for t in tags if isinstance(t, str) and t.strip()][:5]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    # Fallback: comma-separated
+    tags = [t.strip().lower() for t in text.split(",") if t.strip()]
     return [t for t in tags if 1 < len(t) <= 30 and " " not in t][:5]
+
+
+TYPE_DETECT_PROMPT = """Classify this memory entry into exactly one type:
+
+- procedural: How-to steps, workflows, processes, instructions (流程性)
+- entity: Facts about specific people, places, tools, services (实体性)
+- knowledge: General facts, concepts, theories, configurations (知识性)
+
+Title: {title}
+Content: {content}
+
+Reply ONLY with one word: procedural, entity, or knowledge"""
+
+
+def build_type_detect_messages(title: str, content: str) -> list[dict]:
+    """Build LLM messages for memory type detection."""
+    return [
+        {"role": "user", "content": TYPE_DETECT_PROMPT.format(
+            title=title, content=content[:500]
+        )},
+    ]
+
+
+def parse_type_detect_response(text: str) -> str:
+    """Parse LLM type detection response. Returns type string or empty."""
+    lower = text.strip().lower()
+    for t in ("procedural", "entity", "knowledge"):
+        if t in lower:
+            return t
+    return ""

@@ -86,10 +86,10 @@ def migrate_from_v1(
                 v2_db.execute(
                     """INSERT INTO memory_entries
                        (content, title, tags, source, checksum,
-                        owner_agent, scope, state, is_pinned,
+                        owner_agent, scope, memory_type, state, is_pinned,
                         access_count, created_at, updated_at,
                         promoted_at, archived_at)
-                       VALUES (?, ?, ?, ?, ?, ?, 'private', ?, 0, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, 'private', 'knowledge', ?, 0, ?, ?, ?, ?, ?)""",
                     (
                         row["content"],
                         row["title"] or "",

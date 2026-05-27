@@ -95,13 +95,13 @@ class HotLayer:
     def get_system_prompt_block(self, agent_id: str, max_chars: int = None) -> str:
         """Get the hot layer content formatted for system prompt injection.
 
-        Agent-specific entries + shared entries, sorted by score.
+        Agent-specific entries + shared entries, grouped by memory type.
         Consumer is responsible for truncation to its own token budget.
 
         Args:
             agent_id: Agent to get hot layer for.
             max_chars: Optional max characters. If set, truncates from the bottom
-                       (lowest-scored entries removed first) to fit.
+                       (lowest-priority type entries removed first) to fit.
 
         Returns:
             Markdown-formatted string for system prompt injection.
@@ -111,11 +111,12 @@ class HotLayer:
             return ""
 
         from my_agent_memory.db import _enrich_row
+        from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG
         entries = [_enrich_row(e) for e in entries]
 
         lines = [f"## Memory ({agent_id})", ""]
 
-        # Separate pinned and regular entries (pinned first)
+        # Pinned first (cross-type)
         pinned = [e for e in entries if e.get("is_pinned")]
         regular = [e for e in entries if not e.get("is_pinned")]
 
@@ -126,17 +127,27 @@ class HotLayer:
                 lines.append(self._format_entry(e))
                 lines.append("")
 
-        if regular:
-            lines.append("### Active")
+        # Per-type sections
+        type_order = sorted(
+            MEMORY_TYPE_CONFIG.items(),
+            key=lambda x: x[1].get("hot_layer_order", 99),
+        )
+
+        for type_key, type_cfg in type_order:
+            type_entries = [e for e in regular if e.get("memory_type", "knowledge") == type_key]
+            if not type_entries:
+                continue
+            emoji = type_cfg.get("emoji", "")
+            lines.append(f"### {emoji} {type_cfg.get('label', type_key)}")
             lines.append("")
-            for e in regular:
+            for e in type_entries:
                 lines.append(self._format_entry(e))
                 lines.append("")
 
         result = "\n".join(lines)
 
         if max_chars and len(result) > max_chars:
-            # Truncate from bottom — keep the highest-scored entries
+            # Truncate from bottom — lowest-priority type entries first
             truncated = result[:max_chars]
             last_newline = truncated.rfind("\n\n")
             if last_newline > 0:
@@ -164,8 +175,9 @@ class HotLayer:
         return f"- {pin_marker}**{title}**{scope_marker}: {content}"
 
     def _format_memory_md(self, agent_id: str, entries: list[dict]) -> str:
-        """Format the full MEMORY.md file content."""
+        """Format the full MEMORY.md file content, grouped by memory type."""
         from my_agent_memory.db import _enrich_row
+        from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG
 
         # Convert all Row objects to dicts upfront
         entries = [_enrich_row(e) for e in entries]
@@ -178,7 +190,7 @@ class HotLayer:
 
         lines = [header, ""]
 
-        # Pinned section
+        # Pinned section (cross-type, always first)
         pinned = [e for e in entries if e.get("is_pinned")]
         if pinned:
             lines.append("## Pinned")
@@ -186,12 +198,23 @@ class HotLayer:
                 lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
             lines.append("")
 
-        # Active section
+        # Group non-pinned entries by type
         regular = [e for e in entries if not e.get("is_pinned")]
-        if regular:
-            lines.append("## Active")
-            for e in regular:
+        type_order = sorted(
+            MEMORY_TYPE_CONFIG.items(),
+            key=lambda x: x[1].get("hot_layer_order", 99),
+        )
+
+        for type_key, type_cfg in type_order:
+            type_entries = [e for e in regular if e.get("memory_type", "knowledge") == type_key]
+            if not type_entries:
+                continue
+            emoji = type_cfg.get("emoji", "")
+            label = type_cfg.get("label", type_key)
+            lines.append(f"## {emoji} {label}")
+            for e in type_entries:
                 lines.append(f"- **{e.get('title', '(untitled)')}**: {e.get('content', '')}")
+            lines.append("")
 
         return "\n".join(lines) + "\n"
 

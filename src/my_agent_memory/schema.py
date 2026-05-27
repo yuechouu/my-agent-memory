@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     owner_agent     TEXT NOT NULL DEFAULT 'noor',
     scope           TEXT NOT NULL DEFAULT 'private',  -- private / shared / project
     project         TEXT,
+    memory_type     TEXT NOT NULL DEFAULT 'knowledge', -- procedural / entity / knowledge
 
     -- Lifecycle
     state           TEXT NOT NULL DEFAULT 'raw',   -- raw / promoted / hot / archived / deleted
@@ -117,11 +118,27 @@ CREATE INDEX IF NOT EXISTS idx_entries_score ON memory_entries(score DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_access ON memory_entries(access_count DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_checksum ON memory_entries(checksum);
 CREATE INDEX IF NOT EXISTS idx_entries_pinned ON memory_entries(is_pinned);
+CREATE INDEX IF NOT EXISTS idx_entries_type ON memory_entries(memory_type);
 CREATE INDEX IF NOT EXISTS idx_conflicts_status ON memory_conflicts(status);
 CREATE INDEX IF NOT EXISTS idx_audit_entry ON memory_audit_log(entry_id);
 CREATE INDEX IF NOT EXISTS idx_audit_agent ON memory_audit_log(agent_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON memory_audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit_log(created_at DESC);
+
+-- Tag co-occurrence graph
+CREATE TABLE IF NOT EXISTS tag_relations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag_a               TEXT NOT NULL,
+    tag_b               TEXT NOT NULL,
+    co_occurrence_count INTEGER DEFAULT 1,
+    similarity          REAL DEFAULT 0.0,
+    last_seen           TEXT DEFAULT (datetime('now')),
+    created_at          TEXT DEFAULT (datetime('now')),
+    UNIQUE(tag_a, tag_b)
+);
+CREATE INDEX IF NOT EXISTS idx_tag_rel_a ON tag_relations(tag_a);
+CREATE INDEX IF NOT EXISTS idx_tag_rel_b ON tag_relations(tag_b);
+CREATE INDEX IF NOT EXISTS idx_tag_rel_count ON tag_relations(co_occurrence_count DESC);
 """
 
 

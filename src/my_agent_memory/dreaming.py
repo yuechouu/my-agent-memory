@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from my_agent_memory.scoring import compute_scores_for_entries
+from my_agent_memory.memory_types import get_type_config
 
 __all__ = ["DreamingEngine"]
 
@@ -82,32 +83,54 @@ class DreamingEngine:
         # Build score lookup
         score_map = {eid: score for eid, score in scored}
 
-        # ── Step 2: Identify candidates ──
-        # Promote: raw entries with high score
-        promote_candidates = [
-            e for e in all_entries
-            if e["state"] == "raw"
-            and score_map.get(e["id"], 0) >= promote_threshold
-            and e.get("access_count", 0) >= 2
-        ]
+        # ── Step 2: Identify candidates (per-type thresholds) ──
+        # Track entry→type mapping for result breakdown
+        entry_type_map = {}
 
-        # Demote: promoted/hot entries with low score (not pinned, not fresh)
-        demote_candidates = [
-            e for e in all_entries
-            if e["state"] in ("promoted", "hot")
-            and not e.get("is_pinned")
-            and e.get("access_count", 0) > 0           # never accessed → keep
-            and score_map.get(e["id"], 0) < demote_threshold
-        ]
+        # Promote: raw entries with score >= type's promote_threshold
+        promote_candidates = []
+        for e in all_entries:
+            entry_type_map[e["id"]] = e.get("memory_type", "knowledge")
+            if e["state"] != "raw":
+                continue
+            if e.get("access_count", 0) < 2:
+                continue
+            type_cfg = get_type_config(e.get("memory_type", "knowledge"))
+            threshold = type_cfg.get("promote_threshold", promote_threshold)
+            if score_map.get(e["id"], 0) >= threshold:
+                promote_candidates.append(e)
 
-        # Archive: any active entries with very low score (not pinned, not fresh)
-        archive_candidates = [
-            e for e in all_entries
-            if e["state"] in ("raw", "promoted", "hot")
-            and not e.get("is_pinned")
-            and e.get("access_count", 0) > 0           # never accessed → keep
-            and score_map.get(e["id"], 0) < archive_threshold
-        ]
+        # Demote: skip non-decaying types (procedural, knowledge never auto-demoted)
+        demote_candidates = []
+        for e in all_entries:
+            if e["state"] not in ("promoted", "hot"):
+                continue
+            if e.get("is_pinned"):
+                continue
+            if e.get("access_count", 0) <= 0:
+                continue
+            type_cfg = get_type_config(e.get("memory_type", "knowledge"))
+            if type_cfg.get("half_life_days") is None:
+                continue  # Non-decaying types are never auto-demoted
+            threshold = type_cfg.get("demote_threshold", demote_threshold)
+            if score_map.get(e["id"], 0) < threshold:
+                demote_candidates.append(e)
+
+        # Archive: skip non-decaying types
+        archive_candidates = []
+        for e in all_entries:
+            if e["state"] not in ("raw", "promoted", "hot"):
+                continue
+            if e.get("is_pinned"):
+                continue
+            if e.get("access_count", 0) <= 0:
+                continue
+            type_cfg = get_type_config(e.get("memory_type", "knowledge"))
+            if type_cfg.get("half_life_days") is None:
+                continue  # Non-decaying types are never auto-archived
+            threshold = type_cfg.get("archive_threshold", archive_threshold)
+            if score_map.get(e["id"], 0) < threshold:
+                archive_candidates.append(e)
 
         # Purge: archived entries older than purge_days
         purge_candidates = self.db.get_purge_candidates(purge_days=purge_days)
@@ -129,6 +152,7 @@ class DreamingEngine:
             "purged": [],
             "conflicts_found": 0,
             "conflicts": [],
+            "by_type": {},
         }
 
         if dry_run:
@@ -171,6 +195,15 @@ class DreamingEngine:
         for entry in promote_candidates[:10]:
             self.db.set_state(entry["id"], "promoted")
             result["promoted"].append(entry["id"])
+
+        # Build by_type breakdown
+        for mt in ("procedural", "entity", "knowledge"):
+            result["by_type"][mt] = {
+                "promoted": sum(1 for eid in result["promoted"] if entry_type_map.get(eid) == mt),
+                "demoted": sum(1 for eid in result["demoted"] if entry_type_map.get(eid) == mt),
+                "archived": sum(1 for eid in result["archived"] if entry_type_map.get(eid) == mt),
+                "purged": sum(1 for eid in result["purged"] if entry_type_map.get(eid) == mt),
+            }
 
         # ── Step 4: Conflicts ──
         if check_conflicts:

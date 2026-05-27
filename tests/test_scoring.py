@@ -80,3 +80,53 @@ class TestComputeScoresForEntries:
         ]
         results = compute_scores_for_entries(entries, now=now)
         assert results[0][0] == 42
+
+
+class TestMemoryTypeScoring:
+    def test_procedural_no_decay(self):
+        """Procedural entries should not decay over time."""
+        now = datetime(2025, 1, 15, tzinfo=timezone.utc)
+        ts = (now - timedelta(days=100)).isoformat()
+        score = compute_score(access_count=3, last_access_ts=ts, source="manual", memory_type="procedural", now=now)
+        # log2(4) * 1.0 * 1.0 = 2.0 (no decay)
+        assert score == 2.0
+
+    def test_knowledge_no_decay(self):
+        """Knowledge entries should not decay over time."""
+        now = datetime(2025, 1, 15, tzinfo=timezone.utc)
+        ts = (now - timedelta(days=100)).isoformat()
+        score = compute_score(access_count=3, last_access_ts=ts, source="manual", memory_type="knowledge", now=now)
+        # log2(4) * 1.0 * 1.0 = 2.0 (no decay)
+        assert score == 2.0
+
+    def test_entity_decays(self):
+        """Entity entries should decay with 30-day half-life."""
+        now = datetime(2025, 1, 15, tzinfo=timezone.utc)
+        ts = (now - timedelta(days=30)).isoformat()
+        score = compute_score(access_count=3, last_access_ts=ts, source="manual", memory_type="entity", now=now)
+        # log2(4) * 0.5 * 1.0 = 1.0
+        assert abs(score - 1.0) < 0.01
+
+    def test_explicit_half_life_overrides_type(self):
+        """Passing explicit half_life_days should override type default."""
+        now = datetime(2025, 1, 15, tzinfo=timezone.utc)
+        ts = (now - timedelta(days=60)).isoformat()
+        # procedural default is None (no decay), but explicit 60 should apply
+        score = compute_score(access_count=3, last_access_ts=ts, source="manual",
+                              memory_type="procedural", half_life_days=60, now=now)
+        # log2(4) * exp(-ln2/60*60) * 1.0 = 2.0 * 0.5 = 1.0
+        assert abs(score - 1.0) < 0.01
+
+    def test_compute_scores_for_entries_passes_type(self):
+        """compute_scores_for_entries should pass memory_type from entry dict."""
+        now = datetime(2025, 1, 15, tzinfo=timezone.utc)
+        ts = (now - timedelta(days=100)).isoformat()
+        entries = [
+            {"id": 1, "access_count": 3, "last_access_ts": ts, "source": "manual", "memory_type": "procedural"},
+            {"id": 2, "access_count": 3, "last_access_ts": ts, "source": "manual", "memory_type": "entity"},
+        ]
+        results = compute_scores_for_entries(entries, now=now)
+        score_map = {eid: s for eid, s in results}
+        # procedural: no decay = 2.0, entity: heavy decay ≈ 0.178
+        assert score_map[1] == 2.0
+        assert score_map[2] < 0.5

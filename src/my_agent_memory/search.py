@@ -14,9 +14,10 @@ __all__ = ["HybridSearch"]
 class HybridSearch:
     """Orchestrates FTS5 and vector search with RRF fusion."""
 
-    def __init__(self, db, embed_client=None):
+    def __init__(self, db, embed_client=None, reranker=None):
         self.db = db
         self.embed_client = embed_client
+        self.reranker = reranker
         self._rrf_k = 60  # RRF smoothing constant
 
     def search(
@@ -26,10 +27,12 @@ class HybridSearch:
         limit: int = 10,
         scope: str = None,
         project: str = None,
+        memory_type: str = None,
         fts_weight: float = 0.5,
         vec_weight: float = 0.5,
+        rerank: bool = False,
     ) -> list[dict]:
-        """Hybrid search: FTS5 + vector with RRF fusion.
+        """Hybrid search: FTS5 + vector with RRF fusion, optional reranking.
 
         Args:
             query: Search query string.
@@ -37,8 +40,10 @@ class HybridSearch:
             limit: Max results to return.
             scope: Optional scope filter.
             project: Optional project filter.
+            memory_type: Optional memory type filter.
             fts_weight: Weight of FTS5 results in RRF (0-1).
             vec_weight: Weight of vector results in RRF (0-1).
+            rerank: If True, apply semantic reranking after RRF fusion.
 
         Returns:
             List of entry dicts sorted by relevance.
@@ -46,9 +51,15 @@ class HybridSearch:
         total_count = self._total_active_count()
 
         if total_count >= 100:
-            return self._two_stage_search(query, agent_id, limit, scope, project, fts_weight, vec_weight)
+            results = self._two_stage_search(query, agent_id, limit, scope, project, memory_type, fts_weight, vec_weight)
         else:
-            return self._full_fusion_search(query, agent_id, limit, scope, project, fts_weight, vec_weight)
+            results = self._full_fusion_search(query, agent_id, limit, scope, project, memory_type, fts_weight, vec_weight)
+
+        # Optional semantic reranking
+        if rerank and self.reranker and results:
+            results = self.reranker.rerank(query, results, top_n=limit)
+
+        return results
 
     def _total_active_count(self) -> int:
         row = self.db.fetchone(
@@ -58,12 +69,14 @@ class HybridSearch:
 
     def _two_stage_search(
         self, query: str, agent_id: str, limit: int,
-        scope: str, project: str, fts_weight: float, vec_weight: float,
+        scope: str, project: str, memory_type: str,
+        fts_weight: float, vec_weight: float,
     ) -> list[dict]:
         """Two-stage: FTS5 pre-filter → vector re-rank → RRF."""
         # Stage 1: FTS5 pre-filter (top 50)
         fts_results = self.db.search(
-            query, agent_id=agent_id, limit=50, scope=scope, project=project
+            query, agent_id=agent_id, limit=50, scope=scope, project=project,
+            memory_type=memory_type,
         )
         if not fts_results:
             return []
@@ -83,12 +96,14 @@ class HybridSearch:
 
     def _full_fusion_search(
         self, query: str, agent_id: str, limit: int,
-        scope: str, project: str, fts_weight: float, vec_weight: float,
+        scope: str, project: str, memory_type: str,
+        fts_weight: float, vec_weight: float,
     ) -> list[dict]:
         """Full fusion: FTS5 all + vector all → RRF."""
         # FTS5 search
         fts_results = self.db.search(
-            query, agent_id=agent_id, limit=100, scope=scope, project=project
+            query, agent_id=agent_id, limit=100, scope=scope, project=project,
+            memory_type=memory_type,
         )
 
         # Vector search
