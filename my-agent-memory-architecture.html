@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Agent Memory — Architecture Diagram</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot {
+      width: 12px; height: 12px; background: #22d3ee;
+      border-radius: 50%; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5); border-radius: 1rem;
+      border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 1000px; display: block; }
+    .cards {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem; margin-top: 2rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem;
+      border: 1px solid #1e293b; padding: 1.25rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>My Agent Memory Architecture</h1>
+      </div>
+      <p class="subtitle">Multi-agent shared memory system — SQLite + FTS5 + vector search + TagGraph</p>
+    </div>
+
+    <!-- Main Diagram -->
+    <div class="diagram-container">
+      <svg viewBox="0 0 1000 720">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowhead-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrowhead-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrowhead-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 1: External Agents (top)
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Hermes -->
+        <rect x="30" y="30" width="130" height="55" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="95" y="53" fill="white" font-size="11" font-weight="600" text-anchor="middle">Hermes</text>
+        <text x="95" y="69" fill="#94a3b8" font-size="8" text-anchor="middle">Python Plugin</text>
+
+        <!-- Pi Code -->
+        <rect x="185" y="30" width="130" height="55" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="250" y="53" fill="white" font-size="11" font-weight="600" text-anchor="middle">Pi Code</text>
+        <text x="250" y="69" fill="#94a3b8" font-size="8" text-anchor="middle">TS Extension</text>
+
+        <!-- Hanako -->
+        <rect x="340" y="30" width="130" height="55" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="405" y="53" fill="white" font-size="11" font-weight="600" text-anchor="middle">Hanako</text>
+        <text x="405" y="69" fill="#94a3b8" font-size="8" text-anchor="middle">JS CLI Bridge</text>
+
+        <!-- Claude Code -->
+        <rect x="495" y="30" width="130" height="55" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="560" y="53" fill="white" font-size="11" font-weight="600" text-anchor="middle">Claude Code</text>
+        <text x="560" y="69" fill="#94a3b8" font-size="8" text-anchor="middle">Future MCP</text>
+
+        <!-- Any Agent -->
+        <rect x="650" y="30" width="130" height="55" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="715" y="53" fill="white" font-size="11" font-weight="600" text-anchor="middle">Any Agent</text>
+        <text x="715" y="69" fill="#94a3b8" font-size="8" text-anchor="middle">REST API / CLI</text>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 2: Provider Layer (arrows from agents down)
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Arrows: Agents → Providers -->
+        <line x1="95" y1="85" x2="95" y2="130" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead-cyan)"/>
+        <line x1="250" y1="85" x2="250" y2="130" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead-cyan)"/>
+        <line x1="405" y1="85" x2="405" y2="130" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead-cyan)"/>
+        <line x1="560" y1="85" x2="560" y2="130" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,4"/>
+        <line x1="715" y1="85" x2="715" y2="130" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,4"/>
+
+        <!-- Hermes Provider -->
+        <rect x="30" y="132" width="130" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="95" y="155" fill="white" font-size="11" font-weight="600" text-anchor="middle">HermesV2</text>
+        <text x="95" y="171" fill="#94a3b8" font-size="8" text-anchor="middle">Provider</text>
+
+        <!-- Pi Extension -->
+        <rect x="185" y="132" width="130" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="250" y="155" fill="white" font-size="11" font-weight="600" text-anchor="middle">pi-memory</text>
+        <text x="250" y="171" fill="#94a3b8" font-size="8" text-anchor="middle">Extension</text>
+
+        <!-- JS Bridge -->
+        <rect x="340" y="132" width="130" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="405" y="155" fill="white" font-size="11" font-weight="600" text-anchor="middle">JS Provider</text>
+        <text x="405" y="171" fill="#94a3b8" font-size="8" text-anchor="middle">execFile CLI</text>
+
+        <!-- REST API Box -->
+        <rect x="520" y="120" width="300" height="80" rx="8" fill="rgba(251, 146, 60, 0.15)" stroke="#fb923c" stroke-width="1" stroke-dasharray="6,3"/>
+        <text x="670" y="138" fill="#fb923c" font-size="9" font-weight="600" text-anchor="middle">HTTP REST API</text>
+        <rect x="540" y="145" width="120" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="600" y="163" fill="white" font-size="10" font-weight="600" text-anchor="middle">serve.py</text>
+        <text x="600" y="177" fill="#94a3b8" font-size="8" text-anchor="middle">:8765</text>
+        <rect x="680" y="145" width="120" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="740" y="163" fill="white" font-size="10" font-weight="600" text-anchor="middle">CLI</text>
+        <text x="740" y="177" fill="#94a3b8" font-size="8" text-anchor="middle">20+ commands</text>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 3: Core API — MultiAgentStore
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Arrows: Providers → Store -->
+        <line x1="95" y1="187" x2="350" y2="238" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="250" y1="187" x2="380" y2="238" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="405" y1="187" x2="410" y2="238" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="670" y1="200" x2="500" y2="238" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- MultiAgentStore -->
+        <rect x="250" y="240" width="500" height="65" rx="8" fill="rgba(6, 78, 59, 0.5)" stroke="#34d399" stroke-width="2"/>
+        <text x="500" y="265" fill="white" font-size="14" font-weight="700" text-anchor="middle">MultiAgentStore</text>
+        <text x="500" y="285" fill="#94a3b8" font-size="9" text-anchor="middle">save · search · hybrid_search · dreaming · consolidate · conflicts</text>
+        <text x="500" y="298" fill="#34d399" font-size="7" text-anchor="middle">Central API Facade</text>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 4: Subsystems
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Arrows: Store → Subsystems -->
+        <line x1="320" y1="305" x2="120" y2="348" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="420" y1="305" x2="310" y2="348" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="500" y1="305" x2="500" y2="348" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="580" y1="305" x2="690" y2="348" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead-emerald)"/>
+
+        <!-- Validation -->
+        <rect x="30" y="350" width="160" height="55" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="110" y="373" fill="white" font-size="11" font-weight="600" text-anchor="middle">Validation</text>
+        <text x="110" y="389" fill="#94a3b8" font-size="8" text-anchor="middle">regex + LLM injection scan</text>
+
+        <!-- Scoring -->
+        <rect x="215" y="350" width="160" height="55" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="295" y="373" fill="white" font-size="11" font-weight="600" text-anchor="middle">Scoring</text>
+        <text x="295" y="389" fill="#94a3b8" font-size="8" text-anchor="middle">log2(access) × decay × weight</text>
+
+        <!-- Dreaming -->
+        <rect x="400" y="350" width="160" height="55" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="480" y="373" fill="white" font-size="11" font-weight="600" text-anchor="middle">Dreaming</text>
+        <text x="480" y="389" fill="#94a3b8" font-size="8" text-anchor="middle">promote · demote · archive</text>
+
+        <!-- Hot Layer -->
+        <rect x="585" y="350" width="160" height="55" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="665" y="373" fill="white" font-size="11" font-weight="600" text-anchor="middle">Hot Layer</text>
+        <text x="665" y="389" fill="#94a3b8" font-size="8" text-anchor="middle">Markdown · system prompt</text>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 5: Search Pipeline
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Arrows: Store → Search -->
+        <line x1="500" y1="305" x2="500" y2="448" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead-emerald)"/>
+
+        <!-- Search Pipeline boundary -->
+        <rect x="100" y="440" width="800" height="100" rx="10" fill="rgba(251, 146, 60, 0.08)" stroke="#fb923c" stroke-width="1" stroke-dasharray="6,3"/>
+        <text x="112" y="456" fill="#fb923c" font-size="9" font-weight="600">Hybrid Search Pipeline</text>
+
+        <!-- FTS5 -->
+        <rect x="120" y="465" width="130" height="55" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="185" y="488" fill="white" font-size="11" font-weight="600" text-anchor="middle">FTS5</text>
+        <text x="185" y="504" fill="#94a3b8" font-size="8" text-anchor="middle">unicode61 + CJK LIKE</text>
+
+        <!-- Vector -->
+        <rect x="275" y="465" width="130" height="55" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="340" y="488" fill="white" font-size="11" font-weight="600" text-anchor="middle">Vector</text>
+        <text x="340" y="504" fill="#94a3b8" font-size="8" text-anchor="middle">sqlite-vec 4096-dim</text>
+
+        <!-- RRF -->
+        <rect x="430" y="465" width="110" height="55" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="485" y="488" fill="white" font-size="11" font-weight="600" text-anchor="middle">RRF</text>
+        <text x="485" y="504" fill="#94a3b8" font-size="8" text-anchor="middle">k=60 fusion</text>
+
+        <!-- Reranker -->
+        <rect x="565" y="465" width="130" height="55" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="630" y="488" fill="white" font-size="11" font-weight="600" text-anchor="middle">Reranker</text>
+        <text x="630" y="504" fill="#94a3b8" font-size="8" text-anchor="middle">bge-reranker-v2-m3</text>
+
+        <!-- TagGraph -->
+        <rect x="720" y="465" width="130" height="55" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="785" y="488" fill="white" font-size="11" font-weight="600" text-anchor="middle">TagGraph</text>
+        <text x="785" y="504" fill="#94a3b8" font-size="8" text-anchor="middle">co-occurrence expand</text>
+
+        <!-- Pipeline arrows -->
+        <line x1="250" y1="492" x2="273" y2="492" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowhead)"/>
+        <line x1="405" y1="492" x2="428" y2="492" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowhead)"/>
+        <line x1="540" y1="492" x2="563" y2="492" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowhead)"/>
+        <line x1="695" y1="492" x2="718" y2="492" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 6: Storage
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Arrow: Pipeline → DB -->
+        <line x1="500" y1="540" x2="500" y2="580" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead-violet)"/>
+
+        <!-- SQLite DB -->
+        <rect x="250" y="585" width="500" height="65" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="2"/>
+        <text x="500" y="610" fill="white" font-size="14" font-weight="700" text-anchor="middle">SQLite (WAL mode)</text>
+        <text x="500" y="630" fill="#94a3b8" font-size="9" text-anchor="middle">memory_entries · memory_fts · memory_vec · tag_relations · memory_conflicts · memory_audit_log</text>
+        <text x="500" y="643" fill="#a78bfa" font-size="7" text-anchor="middle">memory_types: procedural · entity · knowledge</text>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LAYER 7: External Services
+             ══════════════════════════════════════════════════════════════ -->
+
+        <!-- Arrow: Store → LLM -->
+        <line x1="750" y1="272" x2="870" y2="272" stroke="#94a3b8" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+        <!-- SiliconFlow -->
+        <rect x="820" y="220" width="150" height="100" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="895" y="245" fill="white" font-size="11" font-weight="600" text-anchor="middle">SiliconFlow</text>
+        <text x="895" y="263" fill="#94a3b8" font-size="8" text-anchor="middle">Qwen3-Embedding-8B</text>
+        <text x="895" y="278" fill="#94a3b8" font-size="8" text-anchor="middle">bge-reranker-v2-m3</text>
+        <text x="895" y="298" fill="#94a3b8" font-size="8" text-anchor="middle">mimo-v2.5-pro</text>
+        <text x="895" y="313" fill="#94a3b8" font-size="7" text-anchor="middle">(LLM: extract · tags · validate)</text>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LEGEND
+             ══════════════════════════════════════════════════════════════ -->
+        <text x="820" y="50" fill="white" font-size="10" font-weight="600">Legend</text>
+
+        <rect x="820" y="62" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="842" y="70" fill="#94a3b8" font-size="8">Agent / Frontend</text>
+
+        <rect x="820" y="78" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="842" y="86" fill="#94a3b8" font-size="8">Provider / Core</text>
+
+        <rect x="820" y="94" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="842" y="102" fill="#94a3b8" font-size="8">Database / Scoring</text>
+
+        <rect x="820" y="110" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="842" y="118" fill="#94a3b8" font-size="8">Search Pipeline</text>
+
+        <rect x="820" y="126" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="842" y="134" fill="#94a3b8" font-size="8">Security / Validation</text>
+
+        <rect x="820" y="142" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="842" y="150" fill="#94a3b8" font-size="8">External / Future</text>
+
+      </svg>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Agent Integrations</h3>
+        </div>
+        <ul>
+          <li>• Hermes — Python plugin (MemoryProvider ABC)</li>
+          <li>• Pi Code — TS extension (registerTool + events)</li>
+          <li>• Hanako — JS bridge (execFile CLI)</li>
+          <li>• REST API — any HTTP client</li>
+          <li>• CLI — 20+ shell commands</li>
+          <li>• Python — direct MultiAgentStore import</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Core Capabilities</h3>
+        </div>
+        <ul>
+          <li>• 10 LLM-callable memory tools</li>
+          <li>• Hybrid search: FTS5 + vector + RRF + reranker</li>
+          <li>• TagGraph: co-occurrence matrix + query expansion</li>
+          <li>• Memory types: procedural / entity / knowledge</li>
+          <li>• Dreaming: score-driven lifecycle management</li>
+          <li>• Two-layer injection detection (regex + LLM)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>Storage Layer</h3>
+        </div>
+        <ul>
+          <li>• SQLite WAL mode — zero config, ACID</li>
+          <li>• FTS5 — full-text search with unicode61 tokenizer</li>
+          <li>• sqlite-vec — 4096-dim vector similarity</li>
+          <li>• tag_relations — co-occurrence graph</li>
+          <li>• Per-agent namespace isolation</li>
+          <li>• Atomic hot layer writes (temp → fsync → rename)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <p class="footer">
+      my-agent-memory v2.0.0 • SQLite + FTS5 + sqlite-vec • 75 tests passing
+    </p>
+  </div>
+</body>
+</html>
