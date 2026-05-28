@@ -52,12 +52,16 @@ class Database:
             self._init_vector()
 
     def _init_schema(self):
-        self.conn.executescript(SCHEMA)
+        # Phase 1: Create tables (IF NOT EXISTS is safe for existing DBs)
+        # Phase 2: Migrate columns that were added after initial schema
+        # Phase 3: Create indexes (which reference all columns)
+        from my_agent_memory.schema import SCHEMA_TABLES, SCHEMA_INDEXES
+        self.conn.executescript(SCHEMA_TABLES)
         self.conn.commit()
-        # Auto-migrate: add validation_status if missing (v2.1 schema update)
         add_column_if_missing(self.conn, "memory_entries", "validation_status", "TEXT")
-        # Auto-migrate: add memory_type if missing (v2.2 schema update)
         add_column_if_missing(self.conn, "memory_entries", "memory_type", "TEXT NOT NULL DEFAULT 'knowledge'")
+        self.conn.executescript(SCHEMA_INDEXES)
+        self.conn.commit()
 
     def _init_vector(self):
         """Load sqlite-vec extension and create vector table if not exists."""

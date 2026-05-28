@@ -1,6 +1,6 @@
 """SQLite schema definition and migration helpers for My Agent Memory."""
 
-SCHEMA = """
+SCHEMA_TABLES = """
 CREATE TABLE IF NOT EXISTS memory_entries (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     content         TEXT NOT NULL,
@@ -109,6 +109,20 @@ CREATE TABLE IF NOT EXISTS memory_audit_log (
     created_at      TEXT DEFAULT (datetime('now'))
 );
 
+-- Tag co-occurrence graph
+CREATE TABLE IF NOT EXISTS tag_relations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag_a               TEXT NOT NULL,
+    tag_b               TEXT NOT NULL,
+    co_occurrence_count INTEGER DEFAULT 1,
+    similarity          REAL DEFAULT 0.0,
+    last_seen           TEXT DEFAULT (datetime('now')),
+    created_at          TEXT DEFAULT (datetime('now')),
+    UNIQUE(tag_a, tag_b)
+);
+"""
+
+SCHEMA_INDEXES = """
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_entries_owner ON memory_entries(owner_agent);
 CREATE INDEX IF NOT EXISTS idx_entries_scope ON memory_entries(scope);
@@ -124,22 +138,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_entry ON memory_audit_log(entry_id);
 CREATE INDEX IF NOT EXISTS idx_audit_agent ON memory_audit_log(agent_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON memory_audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit_log(created_at DESC);
-
--- Tag co-occurrence graph
-CREATE TABLE IF NOT EXISTS tag_relations (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    tag_a               TEXT NOT NULL,
-    tag_b               TEXT NOT NULL,
-    co_occurrence_count INTEGER DEFAULT 1,
-    similarity          REAL DEFAULT 0.0,
-    last_seen           TEXT DEFAULT (datetime('now')),
-    created_at          TEXT DEFAULT (datetime('now')),
-    UNIQUE(tag_a, tag_b)
-);
 CREATE INDEX IF NOT EXISTS idx_tag_rel_a ON tag_relations(tag_a);
 CREATE INDEX IF NOT EXISTS idx_tag_rel_b ON tag_relations(tag_b);
 CREATE INDEX IF NOT EXISTS idx_tag_rel_count ON tag_relations(co_occurrence_count DESC);
 """
+
+# Backward compatibility
+SCHEMA = SCHEMA_TABLES + SCHEMA_INDEXES
 
 
 def add_column_if_missing(conn, table: str, column: str, col_type: str):

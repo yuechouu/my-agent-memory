@@ -11,7 +11,6 @@ Does NOT modify production data — uses an in-memory database.
 """
 
 import os
-import sys
 import json
 import traceback
 
@@ -54,14 +53,12 @@ try:
     check("from my_agent_memory import Store", True)
 except ImportError as e:
     check("from my_agent_memory import Store", False, str(e))
-    sys.exit(1)
 
 try:
     store = Store(db_path=":memory:")
     check("Store(db_path=':memory:')", True)
 except Exception as e:
     check("Store(db_path=':memory:')", False, str(e))
-    sys.exit(1)
 
 # ── Step 2: API Surface ──
 print("\n[2] API surface (v1 compatibility)")

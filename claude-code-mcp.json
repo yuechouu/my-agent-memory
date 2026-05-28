@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "my-agent-memory": {
+      "command": "my-agent-memory",
+      "args": ["mcp-server"],
+      "env": {
+        "HERMES_AGENT_ID": "claude-code"
+      }
+    }
+  }
+}

@@ -219,7 +219,11 @@ def _cmd_migrate(args):
 
 def _cmd_serve(args):
     from my_agent_memory.serve import run_server
-    run_server(port=args.port or 8765, store_factory=_get_store)
+    run_server(
+        port=args.port or 8765,
+        store_factory=_get_store,
+        dream_interval=getattr(args, 'dream_interval', 0) or 0,
+    )
 
 
 def _cmd_system_prompt(args):
@@ -229,6 +233,14 @@ def _cmd_system_prompt(args):
         max_chars=args.max_chars,
     )
     print(block)
+
+
+def _cmd_mcp_server(args):
+    from my_agent_memory.mcp_server import run_mcp_server
+    import asyncio
+    db_path = args.db_path or getattr(args, 'db_path', '') or ""
+    agent_id = args.agent_id or "claude-code"
+    asyncio.run(run_mcp_server(db_path=db_path, agent_id=agent_id))
 
 
 # ── Parser ──────────────────────────────────────────────────
@@ -336,7 +348,14 @@ def build_parser() -> argparse.ArgumentParser:
     # serve
     p = sub.add_parser("serve", help="Start web management dashboard")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--dream-interval", type=int, default=0, help="Auto-dream interval in minutes (0=disabled)")
     p.set_defaults(handler=_cmd_serve)
+
+    # mcp-server
+    p = sub.add_parser("mcp-server", help="Run MCP server for Claude Code integration")
+    p.add_argument("--db-path", default="", help="SQLite database path")
+    p.add_argument("--agent-id", default="claude-code", help="Agent identifier")
+    p.set_defaults(handler=_cmd_mcp_server)
 
     # system-prompt
     p = sub.add_parser("system-prompt", help="Print hot layer for system prompt injection")

@@ -1,12 +1,13 @@
 """Web management dashboard server — lightweight HTTP server.
 
 Usage:
-  my-agent-memory serve --port 8765
+  my-agent-memory serve --port 8765 --dream-interval 360
 
 Binds to 127.0.0.1 only (localhost). No authentication.
 """
 
 import json
+import logging
 import os
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -14,6 +15,8 @@ from threading import Thread
 from pathlib import Path
 
 from my_agent_memory.store import MultiAgentStore
+
+logger = logging.getLogger(__name__)
 
 
 def _json_safe(obj):
@@ -216,12 +219,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def run_server(port: int = 8765, store_factory=None):
+def _start_dreaming_scheduler(store: MultiAgentStore, interval_minutes: int):
+    """Start a background thread that runs dreaming at regular intervals."""
+    import threading
+    import time
+
+    def _dream_loop():
+        while True:
+            time.sleep(interval_minutes * 60)
+            try:
+                report = store.dreaming(dry_run=False)
+                promoted = report.get("candidates", {}).get("promote", 0)
+                demoted = report.get("candidates", {}).get("demote", 0)
+                archived = report.get("candidates", {}).get("archive", 0)
+                logger.info(
+                    "Auto-dreaming: promoted=%d demoted=%d archived=%d",
+                    promoted, demoted, archived,
+                )
+            except Exception as e:
+                logger.warning("Auto-dreaming failed: %s", e)
+
+    t = threading.Thread(target=_dream_loop, daemon=True)
+    t.start()
+    print(f"Dreaming scheduler: every {interval_minutes} minutes")
+    return t
+
+
+def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0):
     """Start the dashboard HTTP server."""
     if store_factory:
         DashboardHandler.store = store_factory()
     else:
         DashboardHandler.store = MultiAgentStore(agent_id="yuechou")
+
+    if dream_interval > 0:
+        _start_dreaming_scheduler(DashboardHandler.store, dream_interval)
 
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Hermes Memory Dashboard: http://127.0.0.1:{port}")
