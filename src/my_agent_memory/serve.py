@@ -169,6 +169,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             agent_id=params.get("agent"),
             scope=params.get("scope"),
             state=params.get("state"),
+            memory_type=params.get("memory_type"),
             page=int(params.get("page", 1)),
             limit=int(params.get("limit", 10)),
             query=params.get("q"),

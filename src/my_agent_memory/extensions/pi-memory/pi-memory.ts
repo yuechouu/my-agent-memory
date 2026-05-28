@@ -4,10 +4,19 @@
  * Provides persistent memory capabilities for Pi Coding Agent via
  * my-agent-memory REST API.
  *
+ * Three-layer automation:
+ *   Layer 1 — Tool descriptions with trigger conditions (LLM自主判断)
+ *   Layer 2 — System prompt guidelines (全局记忆使用规则)
+ *   Layer 3 — Event fallbacks:
+ *     - tool_call: track if agent searched this turn
+ *     - input: intercept explicit save intent keywords
+ *     - context: fallback prefetch when agent didn't search
+ *     - turn_end: auto-extract memories from assistant replies
+ *     - session_shutdown: record session end
+ *
  * Features:
  *   - 10 LLM-callable memory tools
  *   - Hot layer injection into system prompt
- *   - Auto-extract memories from conversation turns
  *   - /memory, /dream, /conflicts slash commands
  *
  * Prerequisites:
@@ -88,6 +97,43 @@ const TagGraphParams = Type.Object({
   action: Type.Optional(Type.String({ description: "related or stats (default: stats)." })),
 });
 
+// ── Memory Guidelines (Layer 2) ──────────────────────────────
+
+const MEMORY_GUIDELINES = `
+## Memory System
+You have access to a persistent memory system. Use it actively.
+
+### When to Search
+- User asks about past interactions, preferences, or project details
+- Before answering questions that might be in memory
+
+### When to Save
+- User shares important preferences, decisions, instructions
+- User explicitly says to remember something
+- You learn durable facts (not temporary context)
+
+### When to Update
+- User corrects previously stored information
+- You notice contradictions between conversation and memory
+
+### Memory Types
+- procedural: workflows, how-to steps, instructions
+- entity: facts about specific things (servers, tools, projects)
+- knowledge: general concepts, theories, configurations
+`.trim();
+
+// ── Keywords (Layer 3) ─────────────────────────────────────
+
+const SAVE_KEYWORDS = [
+  "记住", "记下来", "别忘了", "不要忘记", "记一下", "帮我记", "保存这个", "记录下来",
+  "remember this", "save this", "note that", "don't forget", "keep in mind",
+];
+
+const MEMORY_KEYWORDS = [
+  "记得", "记住", "忘记", "之前", "上次", "以前", "说过", "聊过", "提到", "告诉过",
+  "remember", "recall", "before", "previously", "mentioned",
+];
+
 // ── Helper ─────────────────────────────────────────────────
 
 function stripEmbedding(entry: Record<string, unknown>): Record<string, unknown> {
@@ -119,6 +165,8 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerFlag("memory-auto-extract", { description: "Auto-extract memories from turns", type: "boolean", default: true });
 
   let client: MemoryClient;
+  let agentSearchedThisTurn = false;
+  let saveFlagged = false;
 
   function getClient(): MemoryClient {
     if (!client) {
@@ -139,44 +187,100 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
     getClient().stats().catch(() => {});
   });
 
-  // ── Hot Layer Injection ───────────────────────────────
+  // ── Hot Layer + Guidelines Injection ───────────────────
 
   pi.on("before_agent_start", async (event, ctx) => {
     try {
       const block = await getClient().systemPromptBlock(agentId, maxChars);
-      if (block && block.trim()) {
-        return { systemPrompt: event.systemPrompt + "\n\n" + block };
-      }
+      const parts = [event.systemPrompt];
+      if (block && block.trim()) parts.push(block);
+      parts.push(MEMORY_GUIDELINES);
+      return { systemPrompt: parts.join("\n\n") };
     } catch {
-      // Memory server not available — skip silently
+      // Memory server not available — inject guidelines only
+      return { systemPrompt: event.systemPrompt + "\n\n" + MEMORY_GUIDELINES };
     }
   });
 
-  // ── Auto-Extract ─────────────────────────────────────
+  // ── Layer 3: tool_call — track search state ────────────
+
+  pi.on("tool_call", (event) => {
+    if (["memory_search", "memory_recall"].includes(event.toolName)) {
+      agentSearchedThisTurn = true;
+    }
+  });
+
+  // ── Layer 3: input — save intent interception ──────────
+
+  pi.on("input", async (event) => {
+    if (SAVE_KEYWORDS.some(kw => event.text.includes(kw))) {
+      saveFlagged = true;
+    }
+    return { action: "continue" as const };
+  });
+
+  // ── Layer 3: context — fallback prefetch ───────────────
+
+  pi.on("context", async (event) => {
+    // Reset search tracking at turn boundary
+    if (agentSearchedThisTurn) {
+      agentSearchedThisTurn = false;
+      return;
+    }
+    agentSearchedThisTurn = false;
+
+    // Find last user message
+    const messages = event.messages ?? [];
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+    const text = lastUserMsg?.content ?? "";
+    if (typeof text !== "string" || !MEMORY_KEYWORDS.some(kw => text.includes(kw))) return;
+
+    try {
+      const results = await getClient().hybrid(text, { limit: 3 });
+      if (results.length > 0) {
+        const formatted = results.map(formatEntry).join("\n\n");
+        return {
+          messages: [...messages, { role: "user" as const, content: `[Memory:]\n${formatted}` }],
+        };
+      }
+    } catch {
+      // Best-effort
+    }
+  });
+
+  // ── Layer 3: turn_end — auto-extract ──────────────────
 
   pi.on("turn_end", async (event) => {
     if (!autoExtract) return;
 
     try {
-      // Extract user message and assistant reply from the turn
-      const messages = event.toolResults; // available messages in the turn
-      // We use the agent messages to find user + assistant pair
-      // The turn_end event has the final message; we need the full exchange
-      // For now, use a simple heuristic: save if the assistant's response is substantial
       const lastMsg = event.message;
       if (!lastMsg || lastMsg.type !== "assistant") return;
 
-      const assistantContent = typeof lastMsg.content === "string"
+      const content = typeof lastMsg.content === "string"
         ? lastMsg.content
         : Array.isArray(lastMsg.content)
           ? lastMsg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
           : "";
 
-      if (assistantContent.length < 50) return; // Too short to extract
+      if (content.length < 50) return;
 
-      // Fire-and-forget: save via the memory server's own auto-extract
-      // The server's sync_turn handles LLM extraction
-      // We don't duplicate that here — the server does it better
+      // Save auto-extracted memory (fire-and-forget)
+      getClient().save(content.slice(0, 500), "auto-extract", [], "private", "").catch(() => {});
+    } catch {
+      // Best-effort
+    }
+
+    // Reset turn state
+    saveFlagged = false;
+    agentSearchedThisTurn = false;
+  });
+
+  // ── Layer 3: session_shutdown ─────────────────────────
+
+  pi.on("session_shutdown", async () => {
+    try {
+      await getClient().save("Session ended", "session-end", ["session"], "private", "");
     } catch {
       // Best-effort
     }
@@ -187,7 +291,7 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "memory_search",
     label: "Memory Search",
-    description: "Search persistent memory using hybrid FTS5 + vector search. Use to recall facts, preferences, project details.",
+    description: "Search persistent memory using hybrid FTS5 + vector search. **Use when**: user asks about past interactions, preferences, project details, or before answering questions that might be in memory.",
     promptSnippet: "Search the memory system for relevant information.",
     parameters: SearchParams,
     async execute(_id, params) {
@@ -207,7 +311,7 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "memory_save",
     label: "Memory Save",
-    description: "Save a durable fact to persistent memory. Use for user preferences, important instructions, project details.",
+    description: "Save a durable fact to persistent memory. **Use when**: user shares important preferences, decisions, instructions, or explicitly says 'remember this'. Do NOT save temporary context.",
     promptSnippet: "Save important information to long-term memory.",
     parameters: SaveParams,
     async execute(_id, params) {
@@ -229,7 +333,7 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "memory_recall",
     label: "Memory Recall",
-    description: "Structured recall with filters. More precise than memory_search — supports type, scope, and tag filtering.",
+    description: "Structured recall with filters. **Use when**: you need precise filtering by type, scope, or tags. Prefer memory_search for simple queries.",
     parameters: RecallParams,
     async execute(_id, params) {
       const tags = params.tags ? params.tags.split(",").map((t: string) => t.trim()).filter(Boolean) : undefined;
@@ -249,7 +353,7 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "memory_update",
     label: "Memory Update",
-    description: "Update the content, title, or tags of an existing memory entry.",
+    description: "Update the content, title, or tags of an existing memory entry. **Use when**: user corrects previously stored information or you notice contradictions.",
     parameters: UpdateParams,
     async execute(_id, params) {
       const fields: Record<string, unknown> = {};
@@ -267,7 +371,7 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "memory_archive",
     label: "Memory Archive",
-    description: "Archive (soft-delete) a memory entry. Can be restored later.",
+    description: "Archive (soft-delete) a memory entry. **Use when**: information is no longer relevant or user asks to forget.",
     parameters: ArchiveParams,
     async execute(_id, params) {
       const entry = await getClient().archive(params.entry_id);
@@ -281,7 +385,7 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "memory_pin",
     label: "Memory Pin",
-    description: "Pin a memory so it's never auto-archived and always appears in the hot layer. Or unpin it.",
+    description: "Pin a memory so it's never auto-archived and always appears in the hot layer. **Use when**: user emphasizes something is critical and should never be auto-archived. Or unpin it.",
     parameters: PinParams,
     async execute(_id, params) {
       const entry = params.unpin

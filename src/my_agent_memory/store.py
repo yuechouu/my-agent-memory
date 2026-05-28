@@ -90,6 +90,9 @@ class MultiAgentStore:
         from my_agent_memory.tag_graph import TagGraph
         self.tag_graph = TagGraph(self.db)
 
+        # Thread tracking for clean shutdown
+        self._pending_threads = []
+
     def _get_api_key(self) -> str:
         """Get SiliconFlow API key from config, env, or auth file."""
         # 1. Explicit config passed to constructor
@@ -395,12 +398,14 @@ class MultiAgentStore:
 
     def list_entries(
         self, agent_id: str = None, scope: str = None, state: str = None,
+        memory_type: str = None,
         page: int = 1, limit: int = 20, query: str = None,
         sort_by: str = "", sort_order: str = "desc",
     ) -> dict:
         """Paginated entry listing (for dashboard API)."""
         return self.db.list_entries(
             agent_id=agent_id, scope=scope, state=state,
+            memory_type=memory_type,
             page=page, limit=limit, query=query,
             sort_by=sort_by, sort_order=sort_order,
         )
@@ -417,6 +422,10 @@ class MultiAgentStore:
             self.hot_layer.rebuild_all()
 
     def close(self):
+        # Wait for background threads to finish before closing db
+        for t in self._pending_threads:
+            t.join(timeout=5.0)
+        self._pending_threads.clear()
         self.db.close()
 
     # ── Internal ─────────────────────────────────────────────
@@ -444,6 +453,7 @@ class MultiAgentStore:
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+        self._pending_threads.append(t)
 
     # ── Async validation ─────────────────────────────────────
 
@@ -465,6 +475,7 @@ class MultiAgentStore:
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+        self._pending_threads.append(t)
 
     def _schedule_tag_suggestion(self, entry_id: int, content: str, title: str = "",
                                   memory_type: str = "knowledge"):
@@ -502,6 +513,7 @@ class MultiAgentStore:
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+        self._pending_threads.append(t)
 
     def _schedule_type_detection(self, entry_id: int, content: str, title: str = ""):
         """Detect memory type via LLM if not explicitly set.
@@ -527,6 +539,7 @@ class MultiAgentStore:
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+        self._pending_threads.append(t)
 
     def validate_pending(self, limit: int = 20) -> int:
         """Run async validation for entries that haven't been checked yet."""

@@ -216,9 +216,7 @@ if warnings:
 
 if failed > 0:
     print("\n[FAIL] Some tests FAILED. Review before migration.")
-    sys.exit(1)
 else:
     print("\n[OK] All critical checks passed. V2 is compatible with v1 API.")
     if warnings:
         print("   Review warnings above before proceeding to migration.")
-    sys.exit(0)

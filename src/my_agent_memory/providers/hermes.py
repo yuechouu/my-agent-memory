@@ -3,6 +3,16 @@
 Wraps MultiAgentStore as a proper Hermes MemoryProvider plugin.
 Supports: hybrid search, auto-extract, auto-tags, conflict detection, dreaming.
 
+Three-layer automation:
+  Layer 1 — Tool descriptions with trigger conditions (LLM自主判断)
+  Layer 2 — System prompt guidelines via system_prompt_block() (全局记忆使用规则)
+  Layer 3 — Event fallbacks via MemoryProvider hooks:
+    - on_turn_start: detect save intent, trigger fallback prefetch
+    - handle_tool_call: track if agent searched this turn
+    - prefetch: serve fallback results when agent didn't search
+    - sync_turn: auto-extract memories from conversation turns
+    - on_session_end: extract key facts at session end
+
 Config in $HERMES_HOME/config.yaml:
   plugins:
     hermes-v2:
@@ -29,7 +39,8 @@ MEMORY_SEARCH_SCHEMA = {
     "name": "memory_search",
     "description": (
         "Search the agent's persistent memory using hybrid FTS5 + vector search. "
-        "Use this to recall facts, preferences, project details, and prior context."
+        "**Use when**: user asks about past interactions, preferences, project details, "
+        "or before answering questions that might be in memory."
     ),
     "parameters": {
         "type": "object",
@@ -44,9 +55,9 @@ MEMORY_SEARCH_SCHEMA = {
 MEMORY_SAVE_SCHEMA = {
     "name": "memory_save",
     "description": (
-        "Save a durable fact to persistent memory. Use for user preferences, "
-        "important instructions, project details, and decisions the user expects "
-        "you to remember across sessions."
+        "Save a durable fact to persistent memory. "
+        "**Use when**: user shares important preferences, decisions, instructions, "
+        "or explicitly says 'remember this'. Do NOT save temporary context."
     ),
     "parameters": {
         "type": "object",
@@ -63,7 +74,10 @@ MEMORY_SAVE_SCHEMA = {
 
 MEMORY_PIN_SCHEMA = {
     "name": "memory_pin",
-    "description": "Pin a memory entry so it's never auto-archived and always appears in the hot layer.",
+    "description": (
+        "Pin a memory entry so it's never auto-archived and always appears in the hot layer. "
+        "**Use when**: user emphasizes something is critical and should never be auto-archived."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -77,8 +91,9 @@ MEMORY_PIN_SCHEMA = {
 MEMORY_RECALL_SCHEMA = {
     "name": "memory_recall",
     "description": (
-        "Structured recall with filters. More precise than memory_search — "
-        "supports filtering by memory type, scope, and tags."
+        "Structured recall with filters. "
+        "**Use when**: you need precise filtering by type, scope, or tags. "
+        "Prefer memory_search for simple queries."
     ),
     "parameters": {
         "type": "object",
@@ -110,7 +125,10 @@ MEMORY_LIST_SCHEMA = {
 
 MEMORY_UPDATE_SCHEMA = {
     "name": "memory_update",
-    "description": "Update the content, title, or tags of an existing memory entry.",
+    "description": (
+        "Update the content, title, or tags of an existing memory entry. "
+        "**Use when**: user corrects previously stored information or you notice contradictions."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -125,7 +143,10 @@ MEMORY_UPDATE_SCHEMA = {
 
 MEMORY_ARCHIVE_SCHEMA = {
     "name": "memory_archive",
-    "description": "Archive (soft-delete) a memory entry. Can be restored later.",
+    "description": (
+        "Archive (soft-delete) a memory entry. "
+        "**Use when**: information is no longer relevant or user asks to forget."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -174,6 +195,47 @@ MEMORY_TAG_GRAPH_SCHEMA = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Layer 2: Memory guidelines for system prompt
+# ---------------------------------------------------------------------------
+
+MEMORY_GUIDELINES = """
+## Memory System
+You have access to a persistent memory system. Use it actively.
+
+### When to Search
+- User asks about past interactions, preferences, or project details
+- Before answering questions that might be in memory
+
+### When to Save
+- User shares important preferences, decisions, instructions
+- User explicitly says to remember something
+- You learn durable facts (not temporary context)
+
+### When to Update
+- User corrects previously stored information
+- You notice contradictions between conversation and memory
+
+### Memory Types
+- procedural: workflows, how-to steps, instructions
+- entity: facts about specific things (servers, tools, projects)
+- knowledge: general concepts, theories, configurations
+""".strip()
+
+# ---------------------------------------------------------------------------
+# Layer 3: Keyword lists for fallback detection
+# ---------------------------------------------------------------------------
+
+SAVE_KEYWORDS = [
+    "记住", "记下来", "别忘了", "不要忘记", "记一下", "帮我记", "保存这个", "记录下来",
+    "remember this", "save this", "note that", "don't forget", "keep in mind",
+]
+
+MEMORY_KEYWORDS = [
+    "记得", "记住", "忘记", "之前", "上次", "以前", "说过", "聊过", "提到", "告诉过",
+    "remember", "recall", "before", "previously", "mentioned",
+]
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -209,6 +271,10 @@ class HermesV2Provider:
         self._config = config or _load_plugin_config()
         self._store = None
         self._session_id = ""
+        self._agent_searched_this_turn = False
+        self._save_flagged = False
+        self._last_user_message = ""
+        self._pending_prefetch = None
 
     @property
     def name(self) -> str:
@@ -240,38 +306,70 @@ class HermesV2Provider:
         logger.info("Hermes v2 memory provider initialized (agent=%s)", agent_id)
 
     def system_prompt_block(self) -> str:
-        if not self._store:
-            return ""
-        try:
-            block = self._store.get_system_prompt_block()
-            if block and block.strip():
-                return block
-        except Exception as e:
-            logger.debug("system_prompt_block failed: %s", e)
-        return ""
+        parts = []
+        if self._store:
+            try:
+                block = self._store.get_system_prompt_block()
+                if block and block.strip():
+                    parts.append(block)
+            except Exception as e:
+                logger.debug("system_prompt_block failed: %s", e)
+        parts.append(MEMORY_GUIDELINES)
+        return "\n\n".join(parts)
+
+    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
+        """Layer 3: track search state, detect save intent, trigger fallback prefetch."""
+        self._last_user_message = message or ""
+
+        # Detect explicit save intent
+        if any(kw in self._last_user_message for kw in SAVE_KEYWORDS):
+            self._save_flagged = True
+
+        # Fallback prefetch: if agent didn't search last turn and user message
+        # contains memory keywords, queue a prefetch for this turn
+        if not self._agent_searched_this_turn and self._store:
+            if any(kw in self._last_user_message for kw in MEMORY_KEYWORDS):
+                try:
+                    results = self._store.hybrid_search(self._last_user_message, limit=3)
+                    if results:
+                        self._pending_prefetch = results
+                except Exception as e:
+                    logger.debug("Fallback prefetch failed: %s", e)
+
+        # Reset for new turn
+        self._agent_searched_this_turn = False
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        # Use fallback prefetch results if available (from on_turn_start)
+        if self._pending_prefetch is not None:
+            results = self._pending_prefetch
+            self._pending_prefetch = None
+            return self._format_prefetch_results(results)
+
         if not self._store or not query:
             return ""
         try:
             results = self._store.hybrid_search(query, limit=5)
-            if not results:
-                return ""
-            lines = []
-            for r in results:
-                title = r.get("title", "") or "(no title)"
-                content = (r.get("content", "") or "")[:150]
-                source = r.get("owner_agent", "")
-                marker = "📌 " if r.get("is_pinned") else ""
-                id_tag = f"[#{r['id']}]"
-                if source and source != self._store.agent_id:
-                    lines.append(f"- {id_tag} {marker}**{title}** [{source}]: {content}")
-                else:
-                    lines.append(f"- {id_tag} {marker}**{title}**: {content}")
-            return "\n".join(lines)
+            return self._format_prefetch_results(results)
         except Exception as e:
             logger.debug("prefetch failed: %s", e)
             return ""
+
+    def _format_prefetch_results(self, results: list) -> str:
+        if not results:
+            return ""
+        lines = []
+        for r in results:
+            title = r.get("title", "") or "(no title)"
+            content = (r.get("content", "") or "")[:150]
+            source = r.get("owner_agent", "")
+            marker = "📌 " if r.get("is_pinned") else ""
+            id_tag = f"[#{r['id']}]"
+            if source and self._store and source != self._store.agent_id:
+                lines.append(f"- {id_tag} {marker}**{title}** [{source}]: {content}")
+            else:
+                lines.append(f"- {id_tag} {marker}**{title}**: {content}")
+        return "\n".join(lines)
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
         """Auto-extract memorable facts from conversation turn."""
@@ -305,6 +403,7 @@ class HermesV2Provider:
                 logger.debug("Memory extraction failed (non-critical): %s", e)
 
         threading.Thread(target=_extract, daemon=True).start()
+        self._save_flagged = False
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [
@@ -315,6 +414,10 @@ class HermesV2Provider:
         ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+        # Track search calls for fallback prefetch logic
+        if tool_name in ("memory_search", "memory_recall"):
+            self._agent_searched_this_turn = True
+
         if not self._store:
             return json.dumps({"error": "Memory store not initialized"})
 
