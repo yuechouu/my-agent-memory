@@ -180,7 +180,6 @@ MEMORY_TYPE_CONFIG = {
         "conflict_strategy": "merge",
         "hot_layer_order": 11,
         "emoji": "🔍",
-        "promote_to": "knowledge-research",
     },
     "learned-solution": {
         "label": "方案",
@@ -191,7 +190,6 @@ MEMORY_TYPE_CONFIG = {
         "conflict_strategy": "merge",
         "hot_layer_order": 12,
         "emoji": "💡",
-        "promote_to": "knowledge-solution",
     },
     "learned-summary": {
         "label": "总结",
@@ -202,7 +200,6 @@ MEMORY_TYPE_CONFIG = {
         "conflict_strategy": "merge",
         "hot_layer_order": 13,
         "emoji": "📝",
-        "promote_to": "knowledge-summary",
     },
     "learned-pattern": {
         "label": "模式",
@@ -213,7 +210,6 @@ MEMORY_TYPE_CONFIG = {
         "conflict_strategy": "merge",
         "hot_layer_order": 14,
         "emoji": "🧩",
-        "promote_to": "knowledge-pattern",
     },
 
     # === 知识（晋升目标）===

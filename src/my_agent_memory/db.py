@@ -992,45 +992,6 @@ class Database:
         """Commit all pending RAG chunk inserts."""
         self.commit()
 
-    # ── Learning Memory Operations ──────────────────────────────────────────
-
-    def get_learned_candidates_for_promotion(self, min_access: int = 3) -> list:
-        """Get learned memories that are candidates for promotion."""
-        rows = self.fetchall(
-            """SELECT id, memory_type, score, access_count
-               FROM memory_entries
-               WHERE memory_type LIKE 'learned-%'
-                 AND state = 'raw'
-                 AND access_count >= ?
-                 AND deleted_at IS NULL
-               ORDER BY score DESC""",
-            (min_access,),
-        )
-        return [dict(r) for r in rows]
-
-    def promote_memory(self, entry_id: int, new_type: str, audit_agent: str = "") -> Optional[dict]:
-        """Promote a memory to a new type."""
-        row = self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,))
-        if not row:
-            return None
-
-        old_type = row["memory_type"]
-        self.execute(
-            """UPDATE memory_entries
-               SET memory_type = ?, state = 'promoted', promoted_at = datetime('now'), updated_at = datetime('now')
-               WHERE id = ?""",
-            (new_type, entry_id),
-        )
-        self.commit()
-
-        if audit_agent:
-            self.log_audit(entry_id, "promote", audit_agent,
-                          old_state=old_type, new_state=new_type)
-
-        return _enrich_row(
-            self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,))
-        )
-
     # ── Maintenance ──────────────────────────────────────────
 
     def rebuild_fts(self):

@@ -123,18 +123,12 @@ class PatrolEngine:
         if self.rag:
             result["rag_health"] = self._check_rag_health()
 
-        # 3. 学习记忆晋升检查
-        promotions = self._check_learned_promotions()
-        result["promotions"] = promotions
-        if promotions:
-            result["actions"].append(f"晋升 {len(promotions)} 条学习记忆")
-
-        # 4. 过期记忆检查
+        # 3. 过期记忆检查
         stale = result["memory_health"].get("stale_memories", [])
         if stale:
             result["actions"].append(f"发现 {len(stale)} 条过期记忆")
 
-        # 5. 冲突检查
+        # 4. 冲突检查
         conflicts = result["memory_health"].get("conflicts", [])
         if conflicts:
             result["actions"].append(f"发现 {len(conflicts)} 对冲突记忆")
@@ -144,10 +138,14 @@ class PatrolEngine:
     def _phase2_learning(self) -> dict:
         """Phase 2: 自主学习
 
-        基于已有记忆和用户兴趣，主动搜索和学习新知识
+        智能学习策略：
+        1. 分析用户最近的问题 → 学习相关知识
+        2. 分析用户代码风格 → 学习用户偏好
+        3. 读取用户文档 → 学习项目上下文
+        4. 检查知识空白 → 补充基础知识
         """
         result = {
-            "topics": [],
+            "strategies": [],
             "learnings": [],
             "actions": [],
         }
@@ -155,23 +153,94 @@ class PatrolEngine:
         if not self.llm:
             return result
 
-        # 1. 分析用户兴趣领域
-        interests = self._analyze_interests()
-        result["topics"] = interests
+        # 策略1: 从用户最近的问题学习
+        recent_learnings = self._learn_from_recent_questions()
+        if recent_learnings:
+            result["strategies"].append("recent_questions")
+            result["learnings"].extend(recent_learnings)
+            result["actions"].append(f"从最近问题学习: {len(recent_learnings)} 个主题")
 
-        # 2. 找出知识空白
-        gaps = self._find_knowledge_gaps(interests)
-        result["gaps"] = gaps
+        # 策略2: 从知识空白学习
+        gap_learnings = self._learn_from_knowledge_gaps()
+        if gap_learnings:
+            result["strategies"].append("knowledge_gaps")
+            result["learnings"].extend(gap_learnings)
+            result["actions"].append(f"补充知识空白: {len(gap_learnings)} 个主题")
 
-        # 3. 生成学习内容（如果有空白）
-        if gaps:
-            for gap in gaps[:3]:  # 每次最多学习 3 个主题
-                learning = self._generate_learning(gap)
-                if learning:
-                    result["learnings"].append(learning)
-                    result["actions"].append(f"学习: {gap}")
+        # 策略3: 从用户兴趣深化
+        deep_learnings = self._deepen_interests()
+        if deep_learnings:
+            result["strategies"].append("deepen_interests")
+            result["learnings"].extend(deep_learnings)
+            result["actions"].append(f"深化兴趣: {len(deep_learnings)} 个主题")
 
         return result
+
+    def _learn_from_recent_questions(self) -> list:
+        """从用户最近的问题中学习"""
+        if not self.llm:
+            return []
+
+        # 获取最近的 feedback-correction 记忆（用户纠正过的问题）
+        corrections = self.store.search(
+            "纠正 错误 问题",
+            limit=5,
+            memory_type="feedback-correction",
+        )
+
+        learnings = []
+        for correction in corrections[:2]:
+            topic = correction.get("title", "")
+            if topic:
+                learning = self._generate_learning(f"用户曾纠正的问题: {topic}")
+                if learning:
+                    learnings.append(learning)
+
+        return learnings
+
+    def _learn_from_knowledge_gaps(self) -> list:
+        """从知识空白中学习"""
+        if not self.llm:
+            return []
+
+        # 分析用户兴趣
+        interests = self._analyze_interests()
+        if not interests:
+            return []
+
+        # 找出知识空白
+        gaps = []
+        for interest in interests[:10]:
+            results = self.store.search(interest, limit=3)
+            if len(results) < 2:
+                gaps.append(interest)
+
+        learnings = []
+        for gap in gaps[:2]:  # 每次最多学习 2 个空白
+            learning = self._generate_learning(gap)
+            if learning:
+                learnings.append(learning)
+
+        return learnings
+
+    def _deepen_interests(self) -> list:
+        """深化用户兴趣领域的知识"""
+        if not self.llm:
+            return []
+
+        # 获取用户最常用的标签
+        tag_freq = self.store.db.get_tag_frequencies(limit=5)
+        if not tag_freq:
+            return []
+
+        # 选择一个标签深入学习
+        top_tag = tag_freq[0].get("tag", "")
+        if not top_tag:
+            return []
+
+        # 生成进阶学习内容
+        learning = self._generate_learning(f"{top_tag} 进阶技巧")
+        return [learning] if learning else []
 
     def _check_memory_health(self) -> dict:
         """检查记忆健康状态"""
@@ -187,13 +256,35 @@ class PatrolEngine:
         # 检查低质量记忆
         low_quality = self._find_low_quality()
 
+        # 检查向量索引覆盖率
+        vector_coverage = self._check_vector_coverage()
+
         return {
             "total": total,
             "stale_memories": stale,
             "conflicts": conflicts,
             "low_quality": low_quality,
+            "vector_coverage": vector_coverage,
             "by_state": stats.get("by_state", {}),
             "by_type": stats.get("by_type", {}),
+        }
+
+    def _check_vector_coverage(self) -> dict:
+        """检查向量索引覆盖率"""
+        total = self.store.db.fetchone(
+            "SELECT COUNT(*) as cnt FROM memory_entries WHERE deleted_at IS NULL"
+        )["cnt"]
+
+        with_embedding = self.store.db.fetchone(
+            "SELECT COUNT(*) as cnt FROM memory_entries WHERE embedding IS NOT NULL AND deleted_at IS NULL"
+        )["cnt"]
+
+        coverage = (with_embedding / total * 100) if total > 0 else 0
+
+        return {
+            "total": total,
+            "with_embedding": with_embedding,
+            "coverage_percent": round(coverage, 1),
         }
 
     def _check_rag_health(self) -> dict:
@@ -213,34 +304,7 @@ class PatrolEngine:
 
     def _check_learned_promotions(self) -> list:
         """检查学习记忆晋升"""
-        candidates = self.store.db.get_learned_candidates_for_promotion()
-        promotions = []
-
-        from my_agent_memory.memory_types import get_type_config
-
-        for entry in candidates:
-            memory_type = entry.get("memory_type", "")
-            type_cfg = get_type_config(memory_type)
-            promote_to = type_cfg.get("promote_to")
-
-            if not promote_to:
-                continue
-
-            threshold = type_cfg.get("promote_threshold", 3.0)
-            score = entry.get("score", 0)
-
-            if score >= threshold:
-                # 执行晋升
-                self.store.db.promote_memory(entry["id"], promote_to)
-                promotions.append({
-                    "id": entry["id"],
-                    "from": memory_type,
-                    "to": promote_to,
-                    "score": score,
-                })
-                logger.info(f"晋升记忆 {entry['id']}: {memory_type} → {promote_to}")
-
-        return promotions
+        return []
 
     def _find_stale_memories(self, days: int = 90) -> list:
         """查找过期记忆"""
@@ -352,10 +416,6 @@ class PatrolEngine:
         if mh.get("total"):
             parts.append(f"记忆: {mh['total']} 条")
 
-        promotions = p1.get("promotions", [])
-        if promotions:
-            parts.append(f"晋升: {len(promotions)}")
-
         stale = mh.get("stale_memories", [])
         if stale:
             parts.append(f"过期: {len(stale)}")
@@ -363,6 +423,11 @@ class PatrolEngine:
         conflicts = mh.get("conflicts", [])
         if conflicts:
             parts.append(f"冲突: {len(conflicts)}")
+
+        # 向量覆盖率
+        vc = mh.get("vector_coverage", {})
+        if vc.get("coverage_percent") is not None:
+            parts.append(f"向量: {vc['coverage_percent']}%")
 
         # RAG 摘要
         rh = p1.get("rag_health", {})
