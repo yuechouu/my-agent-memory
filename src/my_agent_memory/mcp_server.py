@@ -270,6 +270,33 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                     "required": ["query"],
                 },
             ),
+            # Patrol tools
+            Tool(
+                name="memory_patrol",
+                description=(
+                    "Run a patrol: health check + optional self-learning. "
+                    "Checks memory health, RAG sync, and can learn new topics."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "include_learning": {
+                            "type": "boolean",
+                            "description": "Include self-learning phase (default: false).",
+                        },
+                    },
+                },
+            ),
+            Tool(
+                name="memory_patrol_log",
+                description="Get recent patrol log entries.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Max entries (default 20)."},
+                    },
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -479,6 +506,33 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                     "learned": learned,
                     "rag": rag_results,
                     "total": len(memories) + len(learned) + len(rag_results),
+                }), ensure_ascii=False))]
+
+            # Patrol tools
+            elif name == "memory_patrol":
+                from my_agent_memory.patrol import PatrolEngine
+
+                patrol = PatrolEngine(store=store, rag_engine=rag)
+                report = patrol.patrol(include_learning=arguments.get("include_learning", False))
+
+                return [TextContent(type="text", text=json.dumps(_json_safe({
+                    "summary": report.get("summary", ""),
+                    "actions": report.get("actions", []),
+                    "memory_health": report.get("phase1", {}).get("memory_health", {}),
+                    "rag_health": report.get("phase1", {}).get("rag_health", {}),
+                    "promotions": report.get("phase1", {}).get("promotions", []),
+                    "learnings": report.get("phase2", {}).get("learnings", []),
+                }), ensure_ascii=False))]
+
+            elif name == "memory_patrol_log":
+                from my_agent_memory.patrol import PatrolEngine
+
+                patrol = PatrolEngine(store=store, rag_engine=rag)
+                logs = patrol.get_patrol_log(limit=int(arguments.get("limit", 20)))
+
+                return [TextContent(type="text", text=json.dumps(_json_safe({
+                    "logs": logs,
+                    "count": len(logs),
                 }), ensure_ascii=False))]
 
             else:

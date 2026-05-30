@@ -436,6 +436,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=5, help="Max results per category")
     p.set_defaults(handler=_cmd_unified_search)
 
+    # Patrol commands
+    p = sub.add_parser("patrol", help="Run patrol (health check + learning)")
+    p.add_argument("--learn", action="store_true", help="Include self-learning phase")
+    p.add_argument("--log", action="store_true", help="Show patrol log")
+    p.add_argument("--activity", action="store_true", help="Show activity files")
+    p.set_defaults(handler=_cmd_patrol)
+
     return parser
 
 
@@ -764,6 +771,89 @@ def _cmd_unified_search(args):
         print(f"Total: {result['total']}")
     else:
         _output(result)
+
+
+# ── Patrol command handlers ──────────────────────────────────
+
+def _cmd_patrol(args):
+    """Run patrol (health check + optional learning)."""
+    from my_agent_memory.patrol import PatrolEngine
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    patrol = PatrolEngine(store=store, rag_engine=rag)
+
+    if args.log:
+        # 显示巡检日志
+        logs = patrol.get_patrol_log(limit=20)
+        if logs:
+            print("=== 巡检日志 ===")
+            for log in logs:
+                print(log)
+        else:
+            print("暂无巡检日志")
+        return
+
+    if args.activity:
+        # 显示活动文件
+        files = patrol.get_activity_files()
+        if files:
+            print("=== 活动文件 ===")
+            for f in files:
+                print(f"  {f}")
+        else:
+            print("暂无活动文件")
+        return
+
+    # 执行巡检
+    print("执行巡检...")
+    report = patrol.patrol(include_learning=args.learn)
+
+    # 输出结果
+    print(f"\n=== 巡检报告 ===")
+    print(f"摘要: {report.get('summary', '无')}")
+
+    # Phase 1
+    p1 = report.get("phase1", {})
+    mh = p1.get("memory_health", {})
+    print(f"\n📊 记忆健康:")
+    print(f"  总数: {mh.get('total', 0)}")
+    print(f"  过期: {len(mh.get('stale_memories', []))}")
+    print(f"  冲突: {len(mh.get('conflicts', []))}")
+    print(f"  低质量: {len(mh.get('low_quality', []))}")
+
+    rh = p1.get("rag_health", {})
+    if rh.get("total_documents"):
+        print(f"\n📚 RAG 健康:")
+        print(f"  文档: {rh.get('total_documents', 0)}")
+        print(f"  有效: {rh.get('valid', 0)}")
+        print(f"  缺失: {rh.get('missing', 0)}")
+
+    promotions = p1.get("promotions", [])
+    if promotions:
+        print(f"\n⬆️ 晋升:")
+        for p in promotions:
+            print(f"  {p['from']} → {p['to']} (score: {p['score']:.2f})")
+
+    # Phase 2
+    if args.learn:
+        p2 = report.get("phase2", {})
+        learnings = p2.get("learnings", [])
+        if learnings:
+            print(f"\n📖 学习:")
+            for l in learnings:
+                print(f"  {l['topic']}")
+
+    # Actions
+    actions = report.get("actions", [])
+    if actions:
+        print(f"\n💡 行动:")
+        for a in actions:
+            print(f"  - {a}")
+
+    print(f"\n日志: {patrol.patrol_log_path}")
 
 
 if __name__ == "__main__":
