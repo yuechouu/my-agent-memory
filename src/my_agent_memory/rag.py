@@ -154,9 +154,117 @@ class RAGEngine:
 
         return fused[:limit]
 
-    def delete(self, document_id: str) -> bool:
-        """Delete a document and all its chunks."""
+    def delete(self, document_id: str, soft: bool = False) -> bool:
+        """Delete a document and all its chunks.
+
+        Args:
+            document_id: Document ID to delete
+            soft: If True, mark as deleted but keep data for rollback
+        """
+        if soft:
+            # Soft delete - mark as deleted but keep data
+            self.db.execute(
+                "UPDATE rag_documents SET metadata = json_set(metadata, '$.deleted', datetime('now')) WHERE id = ?",
+                (document_id,),
+            )
+            self.db.commit()
+            return True
+
+        # Hard delete
         return self.db.delete_rag_document(document_id)
+
+    def rollback(self, document_id: str, version: int) -> dict:
+        """Rollback a document to a specific version.
+
+        Args:
+            document_id: Document ID
+            version: Version number to rollback to
+
+        Returns:
+            Dict with rollback result
+        """
+        # Get version info
+        ver = self.db.fetchone(
+            "SELECT * FROM rag_versions WHERE document_id = ? AND version = ?",
+            (document_id, version),
+        )
+
+        if not ver:
+            return {"error": f"Version {version} not found for document {document_id}"}
+
+        # Get current document
+        doc = self.db.get_rag_document(document_id)
+        if not doc:
+            return {"error": f"Document {document_id} not found"}
+
+        # Check if we have the content in chunks
+        chunks = self.db.fetchall(
+            "SELECT * FROM rag_chunks WHERE document_id = ? ORDER BY chunk_index",
+            (document_id,),
+        )
+
+        if not chunks:
+            return {"error": "No chunks found for rollback"}
+
+        # Reconstruct content from chunks
+        content = "\n\n".join([c["content"] for c in chunks])
+
+        # Re-ingest with the old content
+        result = self.ingest(
+            source=doc["source"],
+            content=content,
+            title=doc.get("title"),
+            domain=doc.get("domain"),
+            tags=doc.get("tags"),
+        )
+
+        return {
+            "status": "rolled_back",
+            "document_id": document_id,
+            "version": version,
+            "chunks": result.get("chunk_count", 0),
+        }
+
+    def list_deleted(self, limit: int = 50) -> list:
+        """List soft-deleted documents (can be recovered)."""
+        rows = self.db.fetchall(
+            """SELECT * FROM rag_documents
+               WHERE json_extract(metadata, '$.deleted') IS NOT NULL
+               ORDER BY json_extract(metadata, '$.deleted') DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        return [dict(r) for r in rows]
+
+    def recover(self, document_id: str) -> dict:
+        """Recover a soft-deleted document.
+
+        Args:
+            document_id: Document ID to recover
+
+        Returns:
+            Dict with recovery result
+        """
+        doc = self.db.get_rag_document(document_id)
+        if not doc:
+            return {"error": f"Document {document_id} not found"}
+
+        # Check if it's soft-deleted
+        metadata = doc.get("metadata", {})
+        if not metadata.get("deleted"):
+            return {"error": f"Document {document_id} is not deleted"}
+
+        # Remove deleted marker
+        self.db.execute(
+            "UPDATE rag_documents SET metadata = json_remove(metadata, '$.deleted') WHERE id = ?",
+            (document_id,),
+        )
+        self.db.commit()
+
+        return {
+            "status": "recovered",
+            "document_id": document_id,
+        }
 
     def sync(self, remove_orphans: bool = False) -> dict:
         """Sync RAG documents with source files.

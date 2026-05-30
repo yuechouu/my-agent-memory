@@ -432,6 +432,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_diff.add_argument("version_b", type=int, help="Second version")
     p_diff.set_defaults(handler=_cmd_rag_diff)
 
+    p_rollback = rag_sub.add_parser("rollback", help="Rollback document to a previous version")
+    p_rollback.add_argument("document_id", help="Document ID")
+    p_rollback.add_argument("version", type=int, help="Version to rollback to")
+    p_rollback.set_defaults(handler=_cmd_rag_rollback)
+
+    p_deleted = rag_sub.add_parser("deleted", help="List soft-deleted documents")
+    p_deleted.add_argument("--limit", type=int, default=50, help="Max results")
+    p_deleted.set_defaults(handler=_cmd_rag_deleted)
+
+    p_recover = rag_sub.add_parser("recover", help="Recover a soft-deleted document")
+    p_recover.add_argument("document_id", help="Document ID to recover")
+    p_recover.set_defaults(handler=_cmd_rag_recover)
+
     # Learn commands
     p = sub.add_parser("learn", help="Record a learning")
     p.add_argument("content", help="Learning content")
@@ -772,6 +785,54 @@ def _cmd_rag_diff(args):
     print(f"Version {diff['version_a']} vs {diff['version_b']}:")
     print(f"  Chunks: {diff['chunks_a']} → {diff['chunks_b']} (diff: {diff['chunks_diff']:+d})")
     print(f"  Content changed: {'Yes' if diff['changed'] else 'No'}")
+
+
+def _cmd_rag_rollback(args):
+    """Rollback document to a previous version."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    result = rag.rollback(args.document_id, args.version)
+    if "error" in result:
+        print(f"Error: {result['error']}")
+        return
+
+    print(f"已回滚到版本 {result['version']}")
+    print(f"  文档: {result['document_id']}")
+    print(f"  分块: {result['chunks']}")
+
+
+def _cmd_rag_deleted(args):
+    """List soft-deleted documents."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    deleted = rag.list_deleted(limit=args.limit)
+    if deleted:
+        print(f"=== 已删除的文档 ({len(deleted)}) ===")
+        for doc in deleted:
+            print(f"  [{doc['id']}] {doc.get('title', doc.get('source', ''))}")
+    else:
+        print("没有已删除的文档")
+
+
+def _cmd_rag_recover(args):
+    """Recover a soft-deleted document."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    result = rag.recover(args.document_id)
+    if "error" in result:
+        print(f"Error: {result['error']}")
+        return
+
+    print(f"已恢复文档: {result['document_id']}")
 
 
 # ── Learn command handlers ─────────────────────────────────

@@ -319,6 +319,40 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                     },
                 },
             ),
+            # RAG rollback tools
+            Tool(
+                name="rag_rollback",
+                description="Rollback a RAG document to a previous version.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {"type": "string", "description": "Document ID."},
+                        "version": {"type": "integer", "description": "Version to rollback to."},
+                    },
+                    "required": ["document_id", "version"],
+                },
+            ),
+            Tool(
+                name="rag_deleted",
+                description="List soft-deleted RAG documents (can be recovered).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Max results (default 50)."},
+                    },
+                },
+            ),
+            Tool(
+                name="rag_recover",
+                description="Recover a soft-deleted RAG document.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {"type": "string", "description": "Document ID to recover."},
+                    },
+                    "required": ["document_id"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -579,6 +613,22 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                     "learnings": learnings,
                     "count": len(learnings),
                 }), ensure_ascii=False))]
+
+            # RAG rollback tools
+            elif name == "rag_rollback":
+                result = rag.rollback(arguments["document_id"], int(arguments["version"]))
+                return [TextContent(type="text", text=json.dumps(_json_safe(result), ensure_ascii=False))]
+
+            elif name == "rag_deleted":
+                deleted = rag.list_deleted(limit=int(arguments.get("limit", 50)))
+                return [TextContent(type="text", text=json.dumps(_json_safe({
+                    "documents": deleted,
+                    "count": len(deleted),
+                }), ensure_ascii=False))]
+
+            elif name == "rag_recover":
+                result = rag.recover(arguments["document_id"])
+                return [TextContent(type="text", text=json.dumps(_json_safe(result), ensure_ascii=False))]
 
             else:
                 return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
