@@ -120,6 +120,59 @@ CREATE TABLE IF NOT EXISTS tag_relations (
     created_at          TEXT DEFAULT (datetime('now')),
     UNIQUE(tag_a, tag_b)
 );
+
+-- RAG documents
+CREATE TABLE IF NOT EXISTS rag_documents (
+    id              TEXT PRIMARY KEY,           -- hash of source
+    source          TEXT NOT NULL,              -- URL or file path
+    title           TEXT,
+    domain          TEXT,                       -- programming, math, etc.
+    tags            TEXT DEFAULT '[]',          -- JSON array
+    content_hash    TEXT NOT NULL,              -- content hash for dedup
+    chunk_count     INTEGER DEFAULT 0,
+    ingested_at     TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT,
+    metadata        TEXT DEFAULT '{}'           -- JSON, extensible
+);
+
+-- RAG chunks
+CREATE TABLE IF NOT EXISTS rag_chunks (
+    id              TEXT PRIMARY KEY,           -- {doc_id}_{chunk_index}
+    document_id     TEXT NOT NULL REFERENCES rag_documents(id) ON DELETE CASCADE,
+    chunk_index     INTEGER NOT NULL,
+    content         TEXT NOT NULL,
+    heading         TEXT,                       -- section heading
+    start_line      INTEGER,
+    end_line        INTEGER,
+    embedding       BLOB,                       -- float32 vector
+    created_at      TEXT DEFAULT (datetime('now'))
+);
+
+-- RAG FTS index
+CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_fts USING fts5(
+    content,
+    heading,
+    content='rag_chunks',
+    content_rowid='rowid'
+);
+
+-- RAG FTS sync triggers
+CREATE TRIGGER IF NOT EXISTS rag_ai AFTER INSERT ON rag_chunks BEGIN
+    INSERT INTO rag_chunks_fts(rowid, content, heading)
+    VALUES (new.rowid, new.content, new.heading);
+END;
+
+CREATE TRIGGER IF NOT EXISTS rag_ad AFTER DELETE ON rag_chunks BEGIN
+    INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, content, heading)
+    VALUES ('delete', old.rowid, old.content, old.heading);
+END;
+
+CREATE TRIGGER IF NOT EXISTS rag_au AFTER UPDATE ON rag_chunks BEGIN
+    INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, content, heading)
+    VALUES ('delete', old.rowid, old.content, old.heading);
+    INSERT INTO rag_chunks_fts(rowid, content, heading)
+    VALUES (new.rowid, new.content, new.heading);
+END;
 """
 
 SCHEMA_INDEXES = """
@@ -141,6 +194,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit_log(created_at DESC
 CREATE INDEX IF NOT EXISTS idx_tag_rel_a ON tag_relations(tag_a);
 CREATE INDEX IF NOT EXISTS idx_tag_rel_b ON tag_relations(tag_b);
 CREATE INDEX IF NOT EXISTS idx_tag_rel_count ON tag_relations(co_occurrence_count DESC);
+
+-- RAG indexes
+CREATE INDEX IF NOT EXISTS idx_rag_doc_source ON rag_documents(source);
+CREATE INDEX IF NOT EXISTS idx_rag_doc_domain ON rag_documents(domain);
+CREATE INDEX IF NOT EXISTS idx_rag_doc_hash ON rag_documents(content_hash);
+CREATE INDEX IF NOT EXISTS idx_rag_chunk_doc ON rag_chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_rag_chunk_idx ON rag_chunks(document_id, chunk_index);
 """
 
 # Backward compatibility

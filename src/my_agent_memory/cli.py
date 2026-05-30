@@ -362,6 +362,73 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agent"); p.add_argument("--max-chars", type=int)
     p.set_defaults(handler=_cmd_system_prompt)
 
+    # RAG commands
+    p = sub.add_parser("rag", help="RAG document operations")
+    rag_sub = p.add_subparsers(dest="rag_command")
+
+    p_ingest = rag_sub.add_parser("ingest", help="Ingest a document")
+    p_ingest.add_argument("source", help="Document source (URL or file path)")
+    p_ingest.add_argument("--title", help="Document title")
+    p_ingest.add_argument("--domain", help="Knowledge domain")
+    p_ingest.add_argument("--tags", default="", help="Comma-separated tags")
+    p_ingest.add_argument("--file", help="Read content from file instead of stdin")
+    p_ingest.set_defaults(handler=_cmd_rag_ingest)
+
+    p_search = rag_sub.add_parser("search", help="Search RAG documents")
+    p_search.add_argument("query", help="Search query")
+    p_search.add_argument("--domain", help="Filter by domain")
+    p_search.add_argument("--limit", type=int, default=5, help="Max results")
+    p_search.set_defaults(handler=_cmd_rag_search)
+
+    p_list = rag_sub.add_parser("list", help="List RAG documents")
+    p_list.add_argument("--domain", help="Filter by domain")
+    p_list.add_argument("--limit", type=int, default=50, help="Max results")
+    p_list.set_defaults(handler=_cmd_rag_list)
+
+    p_delete = rag_sub.add_parser("delete", help="Delete RAG document")
+    p_delete.add_argument("document_id", help="Document ID to delete")
+    p_delete.set_defaults(handler=_cmd_rag_delete)
+
+    p_dir = rag_sub.add_parser("ingest-dir", help="Batch import from directory")
+    p_dir.add_argument("path", help="Directory path")
+    p_dir.add_argument("--domain", help="Knowledge domain")
+    p_dir.add_argument("--tags", default="", help="Comma-separated tags")
+    p_dir.add_argument("--pattern", default="*.md,*.txt,*.rst", help="File patterns (comma-separated)")
+    p_dir.add_argument("--ignore", default="node_modules,.git,__pycache__,.venv", help="Ignore patterns")
+    p_dir.set_defaults(handler=_cmd_rag_ingest_dir)
+
+    p_url = rag_sub.add_parser("ingest-url", help="Fetch and ingest from URL")
+    p_url.add_argument("url", help="URL to fetch")
+    p_url.add_argument("--domain", help="Knowledge domain")
+    p_url.add_argument("--tags", default="", help="Comma-separated tags")
+    p_url.set_defaults(handler=_cmd_rag_ingest_url)
+
+    p_git = rag_sub.add_parser("ingest-git", help="Import from git repository")
+    p_git.add_argument("repo", help="Git repository URL or local path")
+    p_git.add_argument("--path", default="", help="Subdirectory to import")
+    p_git.add_argument("--domain", help="Knowledge domain")
+    p_git.add_argument("--tags", default="", help="Comma-separated tags")
+    p_git.add_argument("--pattern", default="*.md,*.txt,*.rst", help="File patterns")
+    p_git.set_defaults(handler=_cmd_rag_ingest_git)
+
+    # Learn commands
+    p = sub.add_parser("learn", help="Record a learning")
+    p.add_argument("content", help="Learning content")
+    p.add_argument("--type", dest="learned_type", default="learned-solution",
+                   choices=["learned-research", "learned-solution", "learned-summary", "learned-pattern"],
+                   help="Type of learning")
+    p.add_argument("--title", help="Short title")
+    p.add_argument("--domain", help="Knowledge domain")
+    p.add_argument("--tags", default="", help="Comma-separated tags")
+    p.set_defaults(handler=_cmd_learn)
+
+    # Unified search
+    p = sub.add_parser("unified", help="Unified search (memories + learned + RAG)")
+    p.add_argument("query", help="Search query")
+    p.add_argument("--domain", help="Filter RAG by domain")
+    p.add_argument("--limit", type=int, default=5, help="Max results per category")
+    p.set_defaults(handler=_cmd_unified_search)
+
     return parser
 
 
@@ -377,6 +444,272 @@ def main():
         args.handler(args)
     else:
         parser.print_help()
+
+
+# ── RAG command handlers ─────────────────────────────────────
+
+def _cmd_rag_ingest(args):
+    """Ingest a document into RAG."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    # Read content
+    if args.file:
+        with open(args.file, "r", encoding="utf-8") as f:
+            content = f.read()
+    elif not sys.stdin.isatty():
+        content = sys.stdin.read()
+    else:
+        print("Error: Provide content via --file or stdin", file=sys.stderr)
+        sys.exit(1)
+
+    tags = _parse_tags(args.tags) if args.tags else []
+    result = rag.ingest(
+        source=args.source,
+        content=content,
+        title=args.title,
+        domain=args.domain,
+        tags=tags,
+    )
+    _output(result, human=True)
+
+
+def _cmd_rag_search(args):
+    """Search RAG documents."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    results = rag.search(
+        query=args.query,
+        domain=args.domain,
+        limit=args.limit,
+    )
+    _output({"results": results, "count": len(results)}, human=True)
+
+
+def _cmd_rag_list(args):
+    """List RAG documents."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    results = rag.list_documents(domain=args.domain, limit=args.limit)
+    _output({"documents": results, "count": len(results)}, human=True)
+
+
+def _cmd_rag_delete(args):
+    """Delete a RAG document."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    success = rag.delete(args.document_id)
+    _output({"success": success}, human=True)
+
+
+def _cmd_rag_ingest_dir(args):
+    """Batch import documents from a directory."""
+    import fnmatch
+    from pathlib import Path
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    dir_path = Path(args.path)
+    if not dir_path.is_dir():
+        print(f"Error: {args.path} is not a directory", file=sys.stderr)
+        sys.exit(1)
+
+    patterns = [p.strip() for p in args.pattern.split(",")]
+    ignore = [p.strip() for p in args.ignore.split(",")]
+    tags = _parse_tags(args.tags) if args.tags else []
+
+    results = []
+    for file_path in sorted(dir_path.rglob("*")):
+        if not file_path.is_file():
+            continue
+
+        # Check ignore patterns
+        rel_path = file_path.relative_to(dir_path)
+        parts = rel_path.parts
+        if any(ig in parts for ig in ignore):
+            continue
+
+        # Check file patterns
+        if not any(fnmatch.fnmatch(file_path.name, p) for p in patterns):
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            if len(content) < 50:  # Skip very small files
+                continue
+
+            source = str(rel_path)
+            result = rag.ingest(
+                source=source,
+                content=content,
+                title=file_path.stem,
+                domain=args.domain,
+                tags=tags,
+            )
+            results.append({"file": source, **result})
+            print(f"  ✓ {source} ({result['chunk_count']} chunks)")
+        except Exception as e:
+            print(f"  ✗ {file_path}: {e}", file=sys.stderr)
+
+    _output({"imported": len(results), "files": results}, human=True)
+
+
+def _cmd_rag_ingest_url(args):
+    """Fetch and ingest content from a URL."""
+    import urllib.request
+    import re
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    tags = _parse_tags(args.tags) if args.tags else []
+
+    try:
+        print(f"Fetching {args.url}...")
+        req = urllib.request.Request(args.url, headers={"User-Agent": "my-agent-memory/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read().decode("utf-8", errors="ignore")
+
+        # Simple HTML to text conversion
+        if "<html" in content.lower()[:500]:
+            # Remove HTML tags
+            content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL | re.IGNORECASE)
+            content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL | re.IGNORECASE)
+            content = re.sub(r"<[^>]+>", "", content)
+            content = re.sub(r"\s+", " ", content)
+            content = content.strip()
+
+        if len(content) < 50:
+            print("Error: Content too short", file=sys.stderr)
+            sys.exit(1)
+
+        result = rag.ingest(
+            source=args.url,
+            content=content,
+            domain=args.domain,
+            tags=tags,
+        )
+        _output({"status": "ingested", **result}, human=True)
+    except Exception as e:
+        print(f"Error fetching URL: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_rag_ingest_git(args):
+    """Import documents from a git repository."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    tags = _parse_tags(args.tags) if args.tags else []
+
+    # Determine if local or remote
+    repo_path = Path(args.repo)
+    is_local = repo_path.exists()
+
+    if is_local:
+        work_dir = repo_path
+    else:
+        # Clone to temp directory
+        work_dir = Path(tempfile.mkdtemp(prefix="rag-git-"))
+        print(f"Cloning {args.repo}...")
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth=1", args.repo, str(work_dir)],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error cloning: {e.stderr}", file=sys.stderr)
+            sys.exit(1)
+
+    # Import using ingest-dir
+    target_dir = work_dir / args.path if args.path else work_dir
+    if not target_dir.is_dir():
+        print(f"Error: {args.path} not found in repository", file=sys.stderr)
+        sys.exit(1)
+
+    # Reuse ingest-dir logic
+    args.path = str(target_dir)
+    _cmd_rag_ingest_dir(args)
+
+    # Cleanup temp directory
+    if not is_local:
+        import shutil
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ── Learn command handlers ─────────────────────────────────
+
+def _cmd_learn(args):
+    """Record a learning."""
+    store = _get_store_from_args(args)
+    tags = _parse_tags(args.tags) if args.tags else []
+    if args.domain:
+        tags.append(f"domain:{args.domain}")
+
+    entry = store.save(
+        content=args.content,
+        title=args.title or "",
+        tags=tags,
+        scope="private",
+        memory_type=args.learned_type,
+    )
+    entry.pop("embedding", None)
+    _output({"status": "learned", "entry": entry}, human=True)
+
+
+# ── Unified search handler ──────────────────────────────────
+
+def _cmd_unified_search(args):
+    """Unified search across memories, learned, and RAG."""
+    store = _get_store_from_args(args)
+
+    result = store.unified_search(
+        query=args.query,
+        domain=args.domain,
+        limit=args.limit,
+    )
+
+    if sys.stdout.isatty():
+        print(f"=== Memories ({len(result['memories'])}) ===")
+        for m in result["memories"]:
+            print(f"  [{m.get('id')}] {m.get('title', '(no title)')}")
+            print(f"    {m.get('content', '')[:100]}")
+            print()
+
+        print(f"=== Learned ({len(result['learned'])}) ===")
+        for l in result["learned"]:
+            print(f"  [{l.get('id')}] {l.get('title', '(no title)')}")
+            print(f"    {l.get('content', '')[:100]}")
+            print()
+
+        print(f"=== RAG ({len(result['rag'])}) ===")
+        for r in result["rag"]:
+            print(f"  [{r.get('id')}] {r.get('heading', '(no heading)')}")
+            print(f"    {r.get('content', '')[:100]}")
+            print()
+
+        print(f"Total: {result['total']}")
+    else:
+        _output(result)
 
 
 if __name__ == "__main__":

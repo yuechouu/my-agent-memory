@@ -99,11 +99,11 @@ class TestMemoryTypeScoring:
         # log2(4) * 1.0 * 1.0 = 2.0 (no decay)
         assert score == 2.0
 
-    def test_entity_decays(self):
-        """Entity entries should decay with 30-day half-life."""
+    def test_user_context_decays(self):
+        """User-context entries should decay with 7-day half-life."""
         now = datetime(2025, 1, 15, tzinfo=timezone.utc)
-        ts = (now - timedelta(days=30)).isoformat()
-        score = compute_score(access_count=3, last_access_ts=ts, source="manual", memory_type="entity", now=now)
+        ts = (now - timedelta(days=7)).isoformat()
+        score = compute_score(access_count=3, last_access_ts=ts, source="manual", memory_type="user-context", now=now)
         # log2(4) * 0.5 * 1.0 = 1.0
         assert abs(score - 1.0) < 0.01
 
@@ -111,9 +111,9 @@ class TestMemoryTypeScoring:
         """Passing explicit half_life_days should override type default."""
         now = datetime(2025, 1, 15, tzinfo=timezone.utc)
         ts = (now - timedelta(days=60)).isoformat()
-        # procedural default is None (no decay), but explicit 60 should apply
+        # learned-solution default is None (no decay), but explicit 60 should apply
         score = compute_score(access_count=3, last_access_ts=ts, source="manual",
-                              memory_type="procedural", half_life_days=60, now=now)
+                              memory_type="learned-solution", half_life_days=60, now=now)
         # log2(4) * exp(-ln2/60*60) * 1.0 = 2.0 * 0.5 = 1.0
         assert abs(score - 1.0) < 0.01
 
@@ -122,8 +122,8 @@ class TestMemoryTypeScoring:
         now = datetime(2025, 1, 15, tzinfo=timezone.utc)
         ts = (now - timedelta(days=100)).isoformat()
         entries = [
-            {"id": 1, "access_count": 3, "last_access_ts": ts, "source": "manual", "memory_type": "procedural"},
-            {"id": 2, "access_count": 3, "last_access_ts": ts, "source": "manual", "memory_type": "entity"},
+            {"id": 1, "access_count": 3, "last_access_ts": ts, "source": "manual", "memory_type": "learned-solution"},
+            {"id": 2, "access_count": 3, "last_access_ts": ts, "source": "manual", "memory_type": "user-context"},
         ]
         results = compute_scores_for_entries(entries, now=now)
         score_map = {eid: s for eid, s in results}

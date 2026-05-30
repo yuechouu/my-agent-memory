@@ -21,6 +21,7 @@ from my_agent_memory.hot_layer import HotLayer
 from my_agent_memory.validate import validate_sync
 from my_agent_memory.embed import EmbeddingClient
 from my_agent_memory.config import get_api_key
+from my_agent_memory.rag import RAGEngine
 
 
 class MultiAgentStore:
@@ -89,6 +90,9 @@ class MultiAgentStore:
         # TagGraph
         from my_agent_memory.tag_graph import TagGraph
         self.tag_graph = TagGraph(self.db)
+
+        # RAG Engine
+        self.rag = RAGEngine(db=self.db, embed_client=self.embed_client)
 
         # Thread tracking for clean shutdown
         self._pending_threads = []
@@ -409,6 +413,63 @@ class MultiAgentStore:
             page=page, limit=limit, query=query,
             sort_by=sort_by, sort_order=sort_order,
         )
+
+    # ── Unified Search ──────────────────────────────────────────
+
+    def unified_search(
+        self,
+        query: str,
+        domain: str = None,
+        limit: int = 5,
+        include_memories: bool = True,
+        include_learned: bool = True,
+        include_rag: bool = True,
+    ) -> dict:
+        """Unified search across structured memories, learned knowledge, and RAG documents.
+
+        Args:
+            query: Search query
+            domain: Filter RAG results by domain
+            limit: Max results per category
+            include_memories: Search structured memories
+            include_learned: Search learned memories
+            include_rag: Search RAG documents
+
+        Returns:
+            Dict with memories, learned, rag results and total count
+        """
+        result = {
+            "memories": [],
+            "learned": [],
+            "rag": [],
+            "total": 0,
+        }
+
+        # 1. Structured memories
+        if include_memories:
+            memories = self.hybrid_search(query, limit=limit)
+            for m in memories:
+                m.pop("embedding", None)
+            result["memories"] = memories
+
+        # 2. Learned memories
+        if include_learned:
+            learned = self.hybrid_search(
+                query,
+                limit=limit,
+                memory_types=["learned-research", "learned-solution", "learned-summary", "learned-pattern"],
+            )
+            for l in learned:
+                l.pop("embedding", None)
+            result["learned"] = learned
+
+        # 3. RAG documents
+        if include_rag:
+            rag_results = self.rag.search(query, domain=domain, limit=limit)
+            result["rag"] = rag_results
+
+        result["total"] = len(result["memories"]) + len(result["learned"]) + len(result["rag"])
+        return result
 
     # ── Maintenance ──────────────────────────────────────────
 

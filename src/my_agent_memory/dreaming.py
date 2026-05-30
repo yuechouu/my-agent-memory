@@ -210,8 +210,12 @@ class DreamingEngine:
             conflict_count = self._detect_conflicts()
             result["conflicts_found"] = conflict_count
 
-        # ── Step 5: Rebuild hot layer ──
-        if self.hot_layer and (result["promoted"] or result["demoted"] or result["archived"]):
+        # ── Step 5: Learning memory promotion ──
+        learned_promoted = self._promote_learned_memories(dry_run)
+        result["learned_promoted"] = learned_promoted
+
+        # ── Step 6: Rebuild hot layer ──
+        if self.hot_layer and (result["promoted"] or result["demoted"] or result["archived"] or learned_promoted):
             self.hot_layer.rebuild_all()
 
         # ── Step 6: Log ──
@@ -239,6 +243,39 @@ class DreamingEngine:
         if self.hot_layer:
             self.hot_layer.rebuild_agent(entry.get("owner_agent", "noor"))
         return True
+
+    def _promote_learned_memories(self, dry_run: bool = False) -> list:
+        """Promote learned memories that have reached their promotion threshold.
+
+        Returns:
+            List of promoted entry IDs
+        """
+        candidates = self.db.get_learned_candidates_for_promotion()
+        promoted = []
+
+        for entry in candidates:
+            memory_type = entry.get("memory_type", "")
+            type_cfg = get_type_config(memory_type)
+            promote_to = type_cfg.get("promote_to")
+
+            if not promote_to:
+                continue
+
+            threshold = type_cfg.get("promote_threshold", 3.0)
+            score = entry.get("score", 0)
+
+            if score >= threshold:
+                if not dry_run:
+                    self.db.promote_memory(entry["id"], promote_to)
+                    logger.info(f"Promoted learned memory {entry['id']}: {memory_type} → {promote_to}")
+                promoted.append({
+                    "id": entry["id"],
+                    "from_type": memory_type,
+                    "to_type": promote_to,
+                    "score": score,
+                })
+
+        return promoted
 
     def _detect_conflicts(self, recent_days: int = 30) -> int:
         """Detect conflicts in shared/project scope.

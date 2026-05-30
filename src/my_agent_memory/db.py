@@ -10,6 +10,7 @@ Multi-agent memory store with:
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import struct
@@ -17,6 +18,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from my_agent_memory.schema import SCHEMA, add_column_if_missing
 
@@ -840,6 +843,193 @@ class Database:
             "sort_by": sort_by,
             "sort_order": sort_order,
         }
+
+    # ── RAG Operations ──────────────────────────────────────────
+
+    def upsert_rag_document(self, doc_id: str, source: str, title: str = None,
+                            domain: str = None, tags: list = None,
+                            content_hash: str = "", chunk_count: int = 0,
+                            metadata: dict = None) -> dict:
+        """Insert or update a RAG document."""
+        tag_str = json.dumps(tags or [], ensure_ascii=False)
+        meta_str = json.dumps(metadata or {}, ensure_ascii=False)
+
+        self.execute(
+            """INSERT OR REPLACE INTO rag_documents
+               (id, source, title, domain, tags, content_hash, chunk_count, metadata, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (doc_id, source, title, domain, tag_str, content_hash, chunk_count, meta_str),
+        )
+        self.commit()
+        return self.get_rag_document(doc_id)
+
+    def get_rag_document(self, doc_id: str) -> Optional[dict]:
+        """Get RAG document by ID."""
+        row = self.fetchone("SELECT * FROM rag_documents WHERE id = ?", (doc_id,))
+        if row:
+            d = dict(row)
+            try:
+                d["tags"] = json.loads(d.get("tags", "[]"))
+            except (json.JSONDecodeError, TypeError):
+                d["tags"] = []
+            try:
+                d["metadata"] = json.loads(d.get("metadata", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["metadata"] = {}
+            return d
+        return None
+
+    def list_rag_documents(self, domain: str = None, limit: int = 50) -> list:
+        """List RAG documents, optionally filtered by domain."""
+        if domain:
+            rows = self.fetchall(
+                "SELECT * FROM rag_documents WHERE domain = ? ORDER BY ingested_at DESC LIMIT ?",
+                (domain, limit),
+            )
+        else:
+            rows = self.fetchall(
+                "SELECT * FROM rag_documents ORDER BY ingested_at DESC LIMIT ?",
+                (limit,),
+            )
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["tags"] = json.loads(d.get("tags", "[]"))
+            except (json.JSONDecodeError, TypeError):
+                d["tags"] = []
+            result.append(d)
+        return result
+
+    def delete_rag_document(self, doc_id: str) -> bool:
+        """Delete a RAG document and all its chunks."""
+        row = self.fetchone("SELECT id FROM rag_documents WHERE id = ?", (doc_id,))
+        if not row:
+            return False
+        self.execute("DELETE FROM rag_documents WHERE id = ?", (doc_id,))
+        self.commit()
+        return True
+
+    def upsert_rag_chunk(self, chunk_id: str, document_id: str, chunk_index: int,
+                         content: str, heading: str = None,
+                         start_line: int = None, end_line: int = None):
+        """Insert or update a RAG chunk."""
+        self.execute(
+            """INSERT OR REPLACE INTO rag_chunks
+               (id, document_id, chunk_index, content, heading, start_line, end_line)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (chunk_id, document_id, chunk_index, content, heading, start_line, end_line),
+        )
+        # Don't commit here - batch commit after all chunks
+
+    def update_rag_chunk_embedding(self, chunk_id: str, embedding: list[float]):
+        """Update the embedding vector for a RAG chunk."""
+        blob = _floats_to_blob(embedding)
+        self.execute(
+            "UPDATE rag_chunks SET embedding = ? WHERE id = ?",
+            (blob, chunk_id),
+        )
+        # Also index in vec table if available
+        if self._vec_loaded:
+            try:
+                self.execute(
+                    "INSERT OR REPLACE INTO rag_chunks_vec (id, embedding) VALUES (?, ?)",
+                    (chunk_id, blob),
+                )
+            except Exception:
+                pass  # Vec table might not exist yet
+        self.commit()
+
+    def search_rag_fts(self, query: str, limit: int = 10) -> list[dict]:
+        """FTS5 search on RAG chunks."""
+        try:
+            rows = self.fetchall(
+                """SELECT c.*, d.source, d.title, d.domain
+                   FROM rag_chunks_fts fts
+                   JOIN rag_chunks c ON c.rowid = fts.rowid
+                   JOIN rag_documents d ON d.id = c.document_id
+                   WHERE rag_chunks_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?""",
+                (query, limit),
+            )
+            return [dict(r) for r in rows]
+        except Exception:
+            # Fallback to LIKE search
+            rows = self.fetchall(
+                """SELECT c.*, d.source, d.title, d.domain
+                   FROM rag_chunks c
+                   JOIN rag_documents d ON d.id = c.document_id
+                   WHERE c.content LIKE ? OR c.heading LIKE ?
+                   LIMIT ?""",
+                (f"%{query}%", f"%{query}%", limit),
+            )
+            return [dict(r) for r in rows]
+
+    def search_rag_vec(self, query_vector: list[float], limit: int = 10) -> list[dict]:
+        """Vector search on RAG chunks."""
+        if not self._vec_loaded:
+            return []
+
+        try:
+            blob = _floats_to_blob(query_vector)
+            rows = self.fetchall(
+                """SELECT c.*, d.source, d.title, d.domain
+                   FROM rag_chunks_vec v
+                   JOIN rag_chunks c ON c.id = v.id
+                   JOIN rag_documents d ON d.id = c.document_id
+                   WHERE v.embedding MATCH ?
+                   ORDER BY distance
+                   LIMIT ?""",
+                (blob, limit),
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"RAG vector search failed: {e}")
+            return []
+
+    def commit_rag_chunks(self):
+        """Commit all pending RAG chunk inserts."""
+        self.commit()
+
+    # ── Learning Memory Operations ──────────────────────────────────────────
+
+    def get_learned_candidates_for_promotion(self, min_access: int = 3) -> list:
+        """Get learned memories that are candidates for promotion."""
+        rows = self.fetchall(
+            """SELECT id, memory_type, score, access_count
+               FROM memory_entries
+               WHERE memory_type LIKE 'learned-%'
+                 AND state = 'raw'
+                 AND access_count >= ?
+                 AND deleted_at IS NULL
+               ORDER BY score DESC""",
+            (min_access,),
+        )
+        return [dict(r) for r in rows]
+
+    def promote_memory(self, entry_id: int, new_type: str, audit_agent: str = "") -> Optional[dict]:
+        """Promote a memory to a new type."""
+        row = self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,))
+        if not row:
+            return None
+
+        old_type = row["memory_type"]
+        self.execute(
+            """UPDATE memory_entries
+               SET memory_type = ?, state = 'promoted', promoted_at = datetime('now'), updated_at = datetime('now')
+               WHERE id = ?""",
+            (new_type, entry_id),
+        )
+        self.commit()
+
+        if audit_agent:
+            self.log_audit(entry_id, "promote", audit_agent,
+                          old_state=old_type, new_state=new_type)
+
+        return _enrich_row(
+            self.fetchone("SELECT * FROM memory_entries WHERE id = ?", (entry_id,))
+        )
 
     # ── Maintenance ──────────────────────────────────────────
 

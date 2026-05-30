@@ -26,6 +26,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from my_agent_memory.store import MultiAgentStore
+from my_agent_memory.rag import RAGEngine
 
 
 def _json_safe(obj):
@@ -41,6 +42,7 @@ def _json_safe(obj):
 def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
     """Create MCP server instance with memory tools."""
     store = MultiAgentStore(db_path=db_path, agent_id=agent_id)
+    rag = RAGEngine(db=store.db, embed_client=store.embed if hasattr(store, 'embed') else None)
     server = Server("my-agent-memory")
 
     @server.list_tools()
@@ -144,6 +146,130 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                 description="Show memory database statistics (total, by state, by type, etc).",
                 inputSchema={"type": "object", "properties": {}},
             ),
+            # RAG tools
+            Tool(
+                name="rag_ingest",
+                description=(
+                    "Ingest a document into the RAG knowledge base. "
+                    "The document will be chunked, embedded, and indexed for search."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string", "description": "Document source (URL or file path)."},
+                        "content": {"type": "string", "description": "Document content (markdown, text, etc.)."},
+                        "title": {"type": "string", "description": "Document title."},
+                        "domain": {"type": "string", "description": "Knowledge domain (programming, math, etc.)."},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for categorization."},
+                    },
+                    "required": ["source", "content"],
+                },
+            ),
+            Tool(
+                name="rag_search",
+                description=(
+                    "Search RAG knowledge base using hybrid FTS5 + vector search. "
+                    "Use when: user asks about technical topics, API docs, code patterns."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query."},
+                        "domain": {"type": "string", "description": "Filter by domain."},
+                        "limit": {"type": "integer", "description": "Max results (default 5)."},
+                    },
+                    "required": ["query"],
+                },
+            ),
+            Tool(
+                name="rag_list",
+                description="List ingested RAG documents.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "domain": {"type": "string", "description": "Filter by domain."},
+                        "limit": {"type": "integer", "description": "Max results (default 50)."},
+                    },
+                },
+            ),
+            Tool(
+                name="rag_delete",
+                description="Delete a RAG document and all its chunks.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {"type": "string", "description": "Document ID to delete."},
+                    },
+                    "required": ["document_id"],
+                },
+            ),
+            Tool(
+                name="rag_ingest_dir",
+                description="Batch import documents from a directory. Supports file pattern matching.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Directory path."},
+                        "domain": {"type": "string", "description": "Knowledge domain."},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags."},
+                        "pattern": {"type": "string", "description": "File patterns (default: *.md,*.txt,*.rst)."},
+                        "ignore": {"type": "string", "description": "Ignore patterns (default: node_modules,.git)."},
+                    },
+                    "required": ["path"],
+                },
+            ),
+            Tool(
+                name="rag_ingest_url",
+                description="Fetch and ingest content from a URL.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "URL to fetch."},
+                        "domain": {"type": "string", "description": "Knowledge domain."},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags."},
+                    },
+                    "required": ["url"],
+                },
+            ),
+            # Learning tools
+            Tool(
+                name="memory_learn",
+                description=(
+                    "Record a learning (solution, research, pattern, summary). "
+                    "Learning memories can be promoted to knowledge after sufficient use."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "The learning content."},
+                        "learned_type": {
+                            "type": "string",
+                            "enum": ["learned-research", "learned-solution", "learned-summary", "learned-pattern"],
+                            "description": "Type of learning (default: learned-solution).",
+                        },
+                        "title": {"type": "string", "description": "Short descriptive title."},
+                        "domain": {"type": "string", "description": "Knowledge domain."},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags."},
+                    },
+                    "required": ["content"],
+                },
+            ),
+            Tool(
+                name="memory_unified_search",
+                description=(
+                    "Unified search across structured memories, learned knowledge, and RAG documents. "
+                    "Best for comprehensive searches."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query."},
+                        "domain": {"type": "string", "description": "Filter RAG by domain."},
+                        "limit": {"type": "integer", "description": "Max results per category (default 5)."},
+                    },
+                    "required": ["query"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -217,6 +343,143 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
             elif name == "memory_stats":
                 stats = store.stats()
                 return [TextContent(type="text", text=json.dumps(_json_safe(stats), ensure_ascii=False))]
+
+            # RAG tools
+            elif name == "rag_ingest":
+                result = rag.ingest(
+                    source=arguments["source"],
+                    content=arguments["content"],
+                    title=arguments.get("title"),
+                    domain=arguments.get("domain"),
+                    tags=arguments.get("tags"),
+                )
+                return [TextContent(type="text", text=json.dumps(_json_safe(result), ensure_ascii=False))]
+
+            elif name == "rag_search":
+                results = rag.search(
+                    query=arguments["query"],
+                    domain=arguments.get("domain"),
+                    limit=int(arguments.get("limit", 5)),
+                )
+                return [TextContent(type="text", text=json.dumps(_json_safe({"results": results, "count": len(results)}), ensure_ascii=False))]
+
+            elif name == "rag_list":
+                results = rag.list_documents(
+                    domain=arguments.get("domain"),
+                    limit=int(arguments.get("limit", 50)),
+                )
+                return [TextContent(type="text", text=json.dumps(_json_safe({"documents": results, "count": len(results)}), ensure_ascii=False))]
+
+            elif name == "rag_delete":
+                success = rag.delete(arguments["document_id"])
+                return [TextContent(type="text", text=json.dumps(_json_safe({"success": success}), ensure_ascii=False))]
+
+            elif name == "rag_ingest_dir":
+                import fnmatch
+                from pathlib import Path
+
+                dir_path = Path(arguments["path"])
+                if not dir_path.is_dir():
+                    return [TextContent(type="text", text=json.dumps({"error": f"{arguments['path']} is not a directory"}))]
+
+                patterns = [p.strip() for p in arguments.get("pattern", "*.md,*.txt,*.rst").split(",")]
+                ignore = [p.strip() for p in arguments.get("ignore", "node_modules,.git,__pycache__,.venv").split(",")]
+                tags = arguments.get("tags", [])
+
+                results = []
+                for file_path in sorted(dir_path.rglob("*")):
+                    if not file_path.is_file():
+                        continue
+                    rel_path = file_path.relative_to(dir_path)
+                    if any(ig in rel_path.parts for ig in ignore):
+                        continue
+                    if not any(fnmatch.fnmatch(file_path.name, p) for p in patterns):
+                        continue
+                    try:
+                        content = file_path.read_text(encoding="utf-8")
+                        if len(content) < 50:
+                            continue
+                        result = rag.ingest(
+                            source=str(rel_path),
+                            content=content,
+                            title=file_path.stem,
+                            domain=arguments.get("domain"),
+                            tags=tags,
+                        )
+                        results.append({"file": str(rel_path), **result})
+                    except Exception as e:
+                        results.append({"file": str(rel_path), "error": str(e)})
+
+                return [TextContent(type="text", text=json.dumps(_json_safe({"imported": len(results), "files": results}), ensure_ascii=False))]
+
+            elif name == "rag_ingest_url":
+                import re
+                import urllib.request
+
+                try:
+                    req = urllib.request.Request(arguments["url"], headers={"User-Agent": "my-agent-memory/1.0"})
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        content = resp.read().decode("utf-8", errors="ignore")
+
+                    if "<html" in content.lower()[:500]:
+                        content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL | re.IGNORECASE)
+                        content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL | re.IGNORECASE)
+                        content = re.sub(r"<[^>]+>", "", content)
+                        content = re.sub(r"\s+", " ", content)
+                        content = content.strip()
+
+                    if len(content) < 50:
+                        return [TextContent(type="text", text=json.dumps({"error": "Content too short"}))]
+
+                    result = rag.ingest(
+                        source=arguments["url"],
+                        content=content,
+                        domain=arguments.get("domain"),
+                        tags=arguments.get("tags"),
+                    )
+                    return [TextContent(type="text", text=json.dumps(_json_safe({"status": "ingested", **result}), ensure_ascii=False))]
+                except Exception as e:
+                    return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+
+            # Learning tools
+            elif name == "memory_learn":
+                tags = arguments.get("tags", [])
+                if arguments.get("domain"):
+                    tags.append(f"domain:{arguments['domain']}")
+                entry = store.save(
+                    content=arguments["content"],
+                    title=arguments.get("title", ""),
+                    tags=tags,
+                    scope="private",
+                    memory_type=arguments.get("learned_type", "learned-solution"),
+                )
+                entry.pop("embedding", None)
+                return [TextContent(type="text", text=json.dumps(_json_safe({"status": "learned", "entry": entry}), ensure_ascii=False))]
+
+            elif name == "memory_unified_search":
+                query = arguments["query"]
+                domain = arguments.get("domain")
+                limit = int(arguments.get("limit", 5))
+
+                # Search structured memories
+                memories = store.hybrid_search(query, limit=limit)
+                for m in memories:
+                    m.pop("embedding", None)
+
+                # Search learned memories
+                learned = store.hybrid_search(query, limit=limit, memory_type="learned-*")
+                for l in learned:
+                    l.pop("embedding", None)
+
+                # Search RAG
+                rag_results = rag.search(query, domain=domain, limit=limit)
+
+                return [TextContent(type="text", text=json.dumps(_json_safe({
+                    "memories": memories,
+                    "learned": learned,
+                    "rag": rag_results,
+                    "total": len(memories) + len(learned) + len(rag_results),
+                }), ensure_ascii=False))]
 
             else:
                 return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]

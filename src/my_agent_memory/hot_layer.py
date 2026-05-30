@@ -111,7 +111,7 @@ class HotLayer:
             return ""
 
         from my_agent_memory.db import _enrich_row
-        from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG
+        from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG, LEGACY_TYPE_MAP, normalize_type
         entries = [_enrich_row(e) for e in entries]
 
         lines = [f"## Memory ({agent_id})", ""]
@@ -134,7 +134,7 @@ class HotLayer:
         )
 
         for type_key, type_cfg in type_order:
-            type_entries = [e for e in regular if e.get("memory_type", "knowledge") == type_key]
+            type_entries = [e for e in regular if normalize_type(e.get("memory_type") or "knowledge-summary") == type_key]
             if not type_entries:
                 continue
             emoji = type_cfg.get("emoji", "")
@@ -177,7 +177,7 @@ class HotLayer:
     def _format_memory_md(self, agent_id: str, entries: list[dict]) -> str:
         """Format the full MEMORY.md file content, grouped by memory type."""
         from my_agent_memory.db import _enrich_row
-        from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG
+        from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG, normalize_type
 
         # Convert all Row objects to dicts upfront
         entries = [_enrich_row(e) for e in entries]
@@ -206,7 +206,7 @@ class HotLayer:
         )
 
         for type_key, type_cfg in type_order:
-            type_entries = [e for e in regular if e.get("memory_type", "knowledge") == type_key]
+            type_entries = [e for e in regular if normalize_type(e.get("memory_type") or "knowledge-summary") == type_key]
             if not type_entries:
                 continue
             emoji = type_cfg.get("emoji", "")
