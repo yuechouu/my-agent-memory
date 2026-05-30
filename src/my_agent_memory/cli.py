@@ -479,6 +479,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=10, help="Max results")
     p.set_defaults(handler=_cmd_shared_learnings)
 
+    p = sub.add_parser("verify-citations", help="Verify citations in learned content")
+    p.add_argument("--entry-id", type=int, help="Specific entry to verify")
+    p.set_defaults(handler=_cmd_verify_citations)
+
     return parser
 
 
@@ -1009,6 +1013,38 @@ def _cmd_shared_learnings(args):
             print()
     else:
         print("暂无其他Agent分享的学习内容")
+
+
+def _cmd_verify_citations(args):
+    """Verify citations in learned content."""
+    from my_agent_memory.patrol import PatrolEngine
+
+    store = _get_store_from_args(args)
+    patrol = PatrolEngine(store=store)
+
+    print("验证引用中...")
+    result = patrol.verify_citations(entry_id=args.entry_id)
+
+    if "error" in result:
+        print(f"Error: {result['error']}")
+        return
+
+    print(f"\n=== 引用验证结果 ===")
+    print(f"验证通过: {result['verified']}")
+    print(f"无效引用: {result['invalid']}")
+    print(f"已更新: {result['updated']}")
+
+    if result['details']:
+        print(f"\n详细信息:")
+        for d in result['details']:
+            status = d.get('status', 'unknown')
+            url = d.get('url', '')
+            entry_id = d.get('entry_id', '')
+            print(f"  [{entry_id}] {url}")
+            if status == 'updated':
+                print(f"    → {d.get('new_url', '')}")
+            elif status == 'invalid':
+                print(f"    ✗ 无效")
 
 
 if __name__ == "__main__":

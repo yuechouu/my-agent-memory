@@ -133,7 +133,20 @@ class PatrolEngine:
         if conflicts:
             result["actions"].append(f"发现 {len(conflicts)} 对冲突记忆")
 
+        # 5. 引用验证（可选，较耗时）
+        if self._should_verify_citations():
+            citations = self.verify_citations()
+            result["citations"] = citations
+            if citations.get("invalid", 0) > 0:
+                result["actions"].append(f"发现 {citations['invalid']} 个无效引用")
+
         return result
+
+    def _should_verify_citations(self) -> bool:
+        """判断是否应该验证引用（避免每次都验证）"""
+        import random
+        # 10% 的概率验证引用
+        return random.random() < 0.1
 
     def _phase2_learning(self) -> dict:
         """Phase 2: 自主学习
@@ -412,6 +425,118 @@ class PatrolEngine:
                LIMIT 20""",
         )
         return [dict(r) for r in rows]
+
+    def verify_citations(self, entry_id: int = None) -> dict:
+        """验证学习内容中的引用
+
+        Args:
+            entry_id: Specific entry to verify, or None for all learned entries
+
+        Returns:
+            Dict with verification results
+        """
+        import re
+        import urllib.request
+
+        result = {
+            "verified": 0,
+            "invalid": 0,
+            "updated": 0,
+            "details": [],
+        }
+
+        # Get entries to verify
+        if entry_id:
+            entries = [self.store.get(entry_id)]
+            if not entries[0]:
+                return {"error": f"Entry {entry_id} not found"}
+        else:
+            entries = self.store.search(
+                "学习 笔记",
+                limit=50,
+                memory_type="learned-*",
+            )
+
+        for entry in entries:
+            if not entry:
+                continue
+
+            content = entry.get("content", "")
+            entry_id = entry.get("id")
+
+            # Extract URLs from content
+            urls = re.findall(r'https?://[^\s\)]+', content)
+
+            for url in urls:
+                # Clean URL (remove trailing punctuation)
+                url = url.rstrip('.,;:!?')
+
+                # Verify URL
+                is_valid = self._verify_url(url)
+
+                if is_valid:
+                    result["verified"] += 1
+                else:
+                    result["invalid"] += 1
+                    result["details"].append({
+                        "entry_id": entry_id,
+                        "url": url,
+                        "status": "invalid",
+                    })
+
+                    # Try to find updated URL
+                    updated_url = self._find_updated_url(url)
+                    if updated_url:
+                        # Update the content
+                        new_content = content.replace(url, updated_url)
+                        self.store.update(entry_id, content=new_content)
+                        result["updated"] += 1
+                        result["details"][-1]["status"] = "updated"
+                        result["details"][-1]["new_url"] = updated_url
+
+        return result
+
+    def _verify_url(self, url: str) -> bool:
+        """验证 URL 是否有效"""
+        import urllib.request
+
+        try:
+            req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "my-agent-memory/1.0"})
+            urllib.request.urlopen(req, timeout=10)
+            return True
+        except Exception:
+            return False
+
+    def _find_updated_url(self, url: str) -> Optional[str]:
+        """尝试找到更新的 URL
+
+        策略：
+        1. 移除末尾的锚点/查询参数
+        2. 尝试 HTTP -> HTTPS
+        3. 尝试 www. 前缀
+        """
+        import urllib.request
+
+        # Strategy 1: Remove fragment/query
+        clean_url = url.split('#')[0].split('?')[0]
+        if clean_url != url:
+            if self._verify_url(clean_url):
+                return clean_url
+
+        # Strategy 2: HTTP -> HTTPS
+        if url.startswith("http://"):
+            https_url = url.replace("http://", "https://", 1)
+            if self._verify_url(https_url):
+                return https_url
+
+        # Strategy 3: Add www.
+        if "://" in url and not url.split("://")[1].startswith("www."):
+            parts = url.split("://")
+            www_url = f"{parts[0]}://www.{parts[1]}"
+            if self._verify_url(www_url):
+                return www_url
+
+        return None
 
     def _analyze_interests(self) -> list:
         """分析用户兴趣领域"""

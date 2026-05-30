@@ -353,6 +353,17 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                     "required": ["document_id"],
                 },
             ),
+            # Citation verification tool
+            Tool(
+                name="memory_verify_citations",
+                description="Verify citations in learned content. Checks if URLs are still valid.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "entry_id": {"type": "integer", "description": "Specific entry to verify (optional)."},
+                    },
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -628,6 +639,15 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
 
             elif name == "rag_recover":
                 result = rag.recover(arguments["document_id"])
+                return [TextContent(type="text", text=json.dumps(_json_safe(result), ensure_ascii=False))]
+
+            # Citation verification tool
+            elif name == "memory_verify_citations":
+                from my_agent_memory.patrol import PatrolEngine
+
+                patrol = PatrolEngine(store=store, rag_engine=rag)
+                result = patrol.verify_citations(entry_id=arguments.get("entry_id"))
+
                 return [TextContent(type="text", text=json.dumps(_json_safe(result), ensure_ascii=False))]
 
             else:
