@@ -74,6 +74,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 agent_id=params.get("agent"),
                 limit=int(params.get("limit", 50)),
             ))
+        elif path == "/api/patrol/log":
+            from my_agent_memory.patrol import PatrolEngine
+            from my_agent_memory.rag import RAGEngine
+            rag = RAGEngine(db=self.store.db, embed_client=self.store.embed_client)
+            patrol = PatrolEngine(store=self.store, rag_engine=rag)
+            self._handle_json({
+                "logs": patrol.get_patrol_log(limit=int(params.get("limit", 20))),
+                "activity_files": patrol.get_activity_files(),
+            })
+        elif path == "/api/patrol/activity":
+            from my_agent_memory.patrol import PatrolEngine
+            patrol = PatrolEngine(store=self.store)
+            filename = params.get("file", "")
+            if filename:
+                from pathlib import Path
+                file_path = patrol.activity_dir / filename
+                if file_path.exists():
+                    self._handle_json({"file": filename, "content": file_path.read_text(encoding="utf-8")})
+                else:
+                    self._error(404, "File not found")
+            else:
+                self._handle_json({"files": patrol.get_activity_files()})
         else:
             self._error(404, "Not found")
 
@@ -102,6 +124,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/dreaming":
             dry_run = body.get("dry_run", True)
             self._handle_json(self.store.dreaming(dry_run=dry_run))
+        elif path == "/api/patrol":
+            from my_agent_memory.patrol import PatrolEngine
+            from my_agent_memory.rag import RAGEngine
+            rag = RAGEngine(db=self.store.db, embed_client=self.store.embed_client)
+            patrol = PatrolEngine(store=self.store, rag_engine=rag)
+            report = patrol.patrol(include_learning=body.get("include_learning", False))
+            self._handle_json(report)
         elif path.startswith("/api/conflicts/") and path.endswith("/resolve"):
             cid = int(path.split("/")[3])
             self._handle_json(self.store.resolve_conflict(

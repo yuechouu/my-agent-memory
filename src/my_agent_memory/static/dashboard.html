@@ -151,6 +151,8 @@ body::after {
 .btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
 .btn-primary { background: var(--accent); color: var(--bg); font-weight: 600; }
 .btn-primary:hover { opacity: 0.9; }
+.btn-info { background: transparent; color: var(--success); border-color: rgba(125,211,168,0.3); }
+.btn-info:hover { background: rgba(125,211,168,0.1); }
 .btn-danger { background: transparent; color: var(--danger); border-color: rgba(239,83,80,0.3); }
 .btn-danger:hover { background: rgba(239,83,80,0.1); }
 .btn-sm { padding: 5px 10px; font-size: 11px; }
@@ -398,7 +400,7 @@ function Header({ stats }) {
 }
 
 /* ── Sidebar ── */
-function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts, onTagGraph }) {
+function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts, onTagGraph, onPatrol }) {
   const applyFilter = (updates) => {
     setFilters(f => ({ ...f, ...updates }));
     onSearch(updates);
@@ -473,6 +475,7 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts
 
       <button className="btn btn-danger" style={{ width: '100%' }} onClick={onDreaming}>Run Dreaming</button>
       <button className="btn btn-ghost" style={{ width: '100%' }} onClick={onTagGraph}>Tag Graph</button>
+      <button className="btn btn-info" style={{ width: '100%' }} onClick={onPatrol}>Patrol</button>
     </aside>
   );
 }
@@ -766,6 +769,8 @@ function App() {
   const [showAuditLog, setShowAuditLog] = useState(false);
   const [auditLog, setAuditLog] = useState([]);
   const [showTagGraph, setShowTagGraph] = useState(false);
+  const [showPatrol, setShowPatrol] = useState(false);
+  const [patrolData, setPatrolData] = useState(null);
 
   const loadEntries = useCallback(async (page = 1, filterOverrides = {}) => {
     setLoading(true);
@@ -855,6 +860,24 @@ function App() {
     } catch (e) { toast(e.message, true); }
   };
 
+  const handlePatrol = async (includeLearning = false) => {
+    try {
+      setPatrolData(null);
+      setShowPatrol(true);
+      const report = await api('/api/patrol', { method: 'POST', body: { include_learning: includeLearning } });
+      setPatrolData(report);
+      loadStats();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const handlePatrolLog = async () => {
+    try {
+      const data = await api('/api/patrol/log');
+      setPatrolData({ type: 'log', ...data });
+      setShowPatrol(true);
+    } catch (e) { toast(e.message, true); }
+  };
+
   const toggleSelect = (id) => {
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
@@ -902,6 +925,7 @@ function App() {
           onDreaming={handleDreaming}
           onConflicts={handleShowConflicts}
           onTagGraph={() => setShowTagGraph(true)}
+          onPatrol={() => handlePatrol(false)}
         />
         <main className="main">
           <div className="toolbar">
@@ -1022,6 +1046,72 @@ function App() {
               ))}
             </div>
             <div className="btn-row"><button className="cancel" onClick={() => setShowAuditLog(false)}>Close</button></div>
+          </div>
+        </div>
+      )}
+
+      {showPatrol && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowPatrol(false)}>
+          <div className="modal" style={{ width: 620, maxWidth: '90vw' }}>
+            <h3>Patrol Report</h3>
+            {!patrolData ? (
+              <div style={{ color: 'var(--mid-55)', padding: 20, textAlign: 'center' }}>Running patrol...</div>
+            ) : patrolData.type === 'log' ? (
+              <div>
+                <h4>Patrol Log</h4>
+                <div className="log-list">
+                  {patrolData.logs?.length === 0 ? (
+                    <div style={{ color: 'var(--mid-55)', padding: 20, textAlign: 'center' }}>No patrol logs yet.</div>
+                  ) : patrolData.logs?.map((log, i) => (
+                    <div key={i} className="log-row"><div className="log-time">{log}</div></div>
+                  ))}
+                </div>
+                {patrolData.activity_files?.length > 0 && (
+                  <>
+                    <h4 style={{ marginTop: 16 }}>Activity Files</h4>
+                    <ul>
+                      {patrolData.activity_files.map((f, i) => <li key={i}>{f}</li>)}
+                    </ul>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: 16, padding: 12, background: 'var(--mid-08)', borderRadius: 8 }}>
+                  <strong>Summary:</strong> {patrolData.summary || 'No summary'}
+                </div>
+                {patrolData.actions?.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <h4>Actions</h4>
+                    <ul>
+                      {patrolData.actions.map((a, i) => <li key={i}>{a}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {patrolData.promotions?.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <h4>Promotions</h4>
+                    <ul>
+                      {patrolData.promotions.map((p, i) => (
+                        <li key={i}>{p.from} → {p.to} (score: {p.score?.toFixed(2)})</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {patrolData.learnings?.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <h4>Learnings</h4>
+                    <ul>
+                      {patrolData.learnings.map((l, i) => <li key={i}>{l.topic}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="btn-row">
+              <button className="btn btn-primary" onClick={() => handlePatrol(true)}>Run with Learning</button>
+              <button className="cancel" onClick={() => setShowPatrol(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}
