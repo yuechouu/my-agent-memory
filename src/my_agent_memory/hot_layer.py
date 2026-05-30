@@ -183,25 +183,34 @@ class HotLayer:
         return f"- {pin_marker}**{title}**{scope_marker}: {content}"
 
     def _get_agent_type_filter(self, agent_id: str) -> list:
-        """Get type filter from agent configuration.
+        """Get type filter from agent configuration or LLM analysis.
 
-        Agent config is stored in ~/.hermes/agents/{agent_id}/config.yaml
-        or can be set via the API.
+        Priority:
+        1. Agent config file
+        2. LLM analysis of agent context
+        3. Name-based pattern matching
+        4. No filter (all types)
         """
         import yaml
         from pathlib import Path
 
-        # Check for agent config file
+        # 1. Check for agent config file
         config_path = Path.home() / ".hermes" / "agents" / agent_id / "config.yaml"
         if config_path.exists():
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f) or {}
-                return config.get("memory_types")
+                if "memory_types" in config:
+                    return config["memory_types"]
             except Exception:
                 pass
 
-        # Default type filters based on agent name patterns
+        # 2. Try LLM analysis (if available)
+        llm_result = self._llm_analyze_agent_type(agent_id)
+        if llm_result:
+            return llm_result
+
+        # 3. Default type filters based on agent name patterns
         agent_lower = agent_id.lower()
         if any(kw in agent_lower for kw in ["code", "coding", "dev", "program"]):
             return ["procedural", "knowledge-*", "reference-code", "learned-solution"]
@@ -212,7 +221,97 @@ class HotLayer:
         elif any(kw in agent_lower for kw in ["project", "manage", "task"]):
             return ["project-*", "procedural", "knowledge-*"]
 
-        # No filter - include all types
+        # 4. No filter - include all types
+        return None
+
+    def _llm_analyze_agent_type(self, agent_id: str) -> list:
+        """Use LLM to analyze agent context and determine relevant memory types.
+
+        Analyzes:
+        - Agent's system prompt (if available)
+        - Agent's recent tool usage
+        - Agent's conversation patterns
+        """
+        try:
+            from my_agent_memory.llm import LLMClient
+            llm = LLMClient()
+        except Exception:
+            return None
+
+        # Gather agent context
+        context_parts = []
+
+        # Get agent's recent memories to understand what they work with
+        recent_entries = self.db.fetchall(
+            """SELECT memory_type, COUNT(*) as cnt
+               FROM memory_entries
+               WHERE owner_agent = ?
+                 AND deleted_at IS NULL
+               GROUP BY memory_type
+               ORDER BY cnt DESC
+               LIMIT 10""",
+            (agent_id,),
+        )
+
+        if recent_entries:
+            type_stats = ", ".join([f"{r['memory_type']}({r['cnt']})" for r in recent_entries])
+            context_parts.append(f"Agent's memory distribution: {type_stats}")
+
+        # Get agent's recent tool usage
+        recent_tools = self.db.fetchall(
+            """SELECT DISTINCT json_extract(details, '$.tool') as tool
+               FROM memory_audit_log
+               WHERE agent_id = ?
+                 AND action = 'create'
+               ORDER BY created_at DESC
+               LIMIT 10""",
+            (agent_id,),
+        )
+
+        if recent_tools:
+            tools = [r['tool'] for r in recent_tools if r['tool']]
+            if tools:
+                context_parts.append(f"Recent tools used: {', '.join(tools[:5])}")
+
+        if not context_parts:
+            return None
+
+        # Ask LLM to determine relevant types
+        prompt = f"""Based on this agent's context, which memory types are most relevant?
+
+Available memory types:
+- user-identity, user-preference, user-context (user info)
+- feedback-correction, feedback-confirmation, feedback-preference (feedback)
+- project-progress, project-goal, project-decision, project-issue (project)
+- learned-research, learned-solution, learned-summary, learned-pattern (learned)
+- knowledge-research, knowledge-solution, knowledge-summary, knowledge-pattern (knowledge)
+- reference-url, reference-doc, reference-code, reference-config (reference)
+
+Agent context:
+{chr(10).join(context_parts)}
+
+Return ONLY a JSON array of relevant type patterns (supports wildcards like "knowledge-*").
+Example: ["procedural", "knowledge-*", "reference-code"]"""
+
+        try:
+            response = llm.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=200,
+            )
+
+            if response:
+                import json
+                # Extract JSON array from response
+                import re
+                match = re.search(r'\[.*\]', response, re.DOTALL)
+                if match:
+                    result = json.loads(match.group())
+                    if isinstance(result, list) and len(result) > 0:
+                        return result
+        except Exception:
+            pass
+
         return None
 
     def _matches_type_filter(self, entry: dict, include_types: list) -> bool:
