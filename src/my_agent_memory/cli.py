@@ -457,6 +457,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--activity", action="store_true", help="Show activity files")
     p.set_defaults(handler=_cmd_patrol)
 
+    # Multi-agent collaborative learning
+    p = sub.add_parser("share", help="Share a learning entry with other agents")
+    p.add_argument("entry_id", type=int, help="Memory entry ID to share")
+    p.set_defaults(handler=_cmd_share_learning)
+
+    p = sub.add_parser("shared", help="Get learnings shared by other agents")
+    p.add_argument("--limit", type=int, default=10, help="Max results")
+    p.set_defaults(handler=_cmd_shared_learnings)
+
     return parser
 
 
@@ -902,6 +911,43 @@ def _cmd_patrol(args):
             print(f"  - {a}")
 
     print(f"\n日志: {patrol.patrol_log_path}")
+
+
+# ── Multi-agent collaborative learning handlers ─────────
+
+def _cmd_share_learning(args):
+    """Share a learning entry with other agents."""
+    from my_agent_memory.patrol import PatrolEngine
+
+    store = _get_store_from_args(args)
+    patrol = PatrolEngine(store=store)
+
+    success = patrol.share_learning(args.entry_id)
+    if success:
+        print(f"已分享学习内容 #{args.entry_id}")
+    else:
+        print(f"分享失败: #{args.entry_id}")
+
+
+def _cmd_shared_learnings(args):
+    """Get learnings shared by other agents."""
+    from my_agent_memory.patrol import PatrolEngine
+
+    store = _get_store_from_args(args)
+    patrol = PatrolEngine(store=store)
+
+    learnings = patrol.get_shared_learnings(limit=args.limit)
+    if learnings:
+        print(f"=== 其他Agent分享的学习内容 ({len(learnings)}) ===")
+        for l in learnings:
+            agent = l.get("owner_agent", "unknown")
+            title = l.get("title", "(untitled)")
+            content = l.get("content", "")[:100]
+            print(f"  [{agent}] {title}")
+            print(f"    {content}")
+            print()
+    else:
+        print("暂无其他Agent分享的学习内容")
 
 
 if __name__ == "__main__":

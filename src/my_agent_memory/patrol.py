@@ -143,10 +143,12 @@ class PatrolEngine:
         2. 分析用户代码风格 → 学习用户偏好
         3. 读取用户文档 → 学习项目上下文
         4. 检查知识空白 → 补充基础知识
+        5. 自动分享高质量学习内容
         """
         result = {
             "strategies": [],
             "learnings": [],
+            "shared": [],
             "actions": [],
         }
 
@@ -160,7 +162,7 @@ class PatrolEngine:
             result["learnings"].extend(recent_learnings)
             result["actions"].append(f"从最近问题学习: {len(recent_learnings)} 个主题")
 
-        # 策略2: 从知识空白学习
+        # 策略2: 从知识空白学习（检查跨Agent共享）
         gap_learnings = self._learn_from_knowledge_gaps()
         if gap_learnings:
             result["strategies"].append("knowledge_gaps")
@@ -174,7 +176,35 @@ class PatrolEngine:
             result["learnings"].extend(deep_learnings)
             result["actions"].append(f"深化兴趣: {len(deep_learnings)} 个主题")
 
+        # 自动分享高质量学习内容
+        shared = self._auto_share_learnings(result["learnings"])
+        if shared:
+            result["shared"] = shared
+            result["actions"].append(f"分享学习内容: {len(shared)} 个")
+
         return result
+
+    def _auto_share_learnings(self, learnings: list) -> list:
+        """自动分享高质量学习内容给其他Agent"""
+        shared = []
+
+        for learning in learnings:
+            if not learning or not learning.get("entry_id"):
+                continue
+
+            quality = learning.get("quality", {})
+            score = quality.get("score", 0)
+
+            # 高质量内容（>=0.8分）自动分享
+            if score >= 0.8:
+                if self.share_learning(learning["entry_id"]):
+                    shared.append({
+                        "entry_id": learning["entry_id"],
+                        "topic": learning.get("topic", ""),
+                        "score": score,
+                    })
+
+        return shared
 
     def _learn_from_recent_questions(self) -> list:
         """从用户最近的问题中学习"""
@@ -199,7 +229,7 @@ class PatrolEngine:
         return learnings
 
     def _learn_from_knowledge_gaps(self) -> list:
-        """从知识空白中学习"""
+        """从知识空白中学习（检查跨Agent共享）"""
         if not self.llm:
             return []
 
@@ -208,20 +238,66 @@ class PatrolEngine:
         if not interests:
             return []
 
-        # 找出知识空白
+        # 找出知识空白（检查所有Agent的共享记忆）
         gaps = []
         for interest in interests[:10]:
-            results = self.store.search(interest, limit=3)
+            # 搜索所有Agent的共享记忆
+            results = self.store.search(interest, limit=3, scope="shared")
             if len(results) < 2:
-                gaps.append(interest)
+                # 也搜索当前Agent的私有记忆
+                private_results = self.store.search(interest, limit=3, scope="private")
+                if len(private_results) < 2:
+                    gaps.append(interest)
 
         learnings = []
         for gap in gaps[:2]:  # 每次最多学习 2 个空白
+            # 检查是否已有其他Agent学习过
+            if self._is_already_learned_by_others(gap):
+                logger.info(f"跳过学习，已有其他Agent学习过: {gap}")
+                continue
+
             learning = self._generate_learning(gap)
             if learning:
                 learnings.append(learning)
 
         return learnings
+
+    def _is_already_learned_by_others(self, topic: str) -> bool:
+        """检查主题是否已被其他Agent学习"""
+        # 搜索共享的学习记忆
+        results = self.store.search(
+            topic,
+            limit=3,
+            scope="shared",
+            memory_type="learned-*",
+        )
+
+        # 检查是否有其他Agent的学习记录
+        for result in results:
+            if result.get("owner_agent") != self.store.agent_id:
+                return True
+
+        return False
+
+    def share_learning(self, entry_id: int) -> bool:
+        """将学习内容分享给其他Agent"""
+        try:
+            result = self.store.share(entry_id)
+            if result:
+                logger.info(f"分享学习内容: {entry_id}")
+                return True
+        except Exception as e:
+            logger.error(f"分享学习内容失败: {e}")
+        return False
+
+    def get_shared_learnings(self, limit: int = 10) -> list:
+        """获取其他Agent分享的学习内容"""
+        return self.store.search(
+            "学习 笔记 总结",
+            limit=limit,
+            scope="shared",
+            memory_type="learned-*",
+        )
 
     def _deepen_interests(self) -> list:
         """深化用户兴趣领域的知识"""

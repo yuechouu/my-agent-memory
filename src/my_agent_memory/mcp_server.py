@@ -297,6 +297,28 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                     },
                 },
             ),
+            # Multi-agent collaborative learning tools
+            Tool(
+                name="memory_share_learning",
+                description="Share a learning entry with other agents (set scope to shared).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "entry_id": {"type": "integer", "description": "Memory entry ID to share."},
+                    },
+                    "required": ["entry_id"],
+                },
+            ),
+            Tool(
+                name="memory_shared_learnings",
+                description="Get learnings shared by other agents.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Max results (default 10)."},
+                    },
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -533,6 +555,29 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                 return [TextContent(type="text", text=json.dumps(_json_safe({
                     "logs": logs,
                     "count": len(logs),
+                }), ensure_ascii=False))]
+
+            # Multi-agent collaborative learning tools
+            elif name == "memory_share_learning":
+                from my_agent_memory.patrol import PatrolEngine
+
+                patrol = PatrolEngine(store=store, rag_engine=rag)
+                success = patrol.share_learning(int(arguments["entry_id"]))
+
+                return [TextContent(type="text", text=json.dumps(_json_safe({
+                    "success": success,
+                    "entry_id": arguments["entry_id"],
+                }), ensure_ascii=False))]
+
+            elif name == "memory_shared_learnings":
+                from my_agent_memory.patrol import PatrolEngine
+
+                patrol = PatrolEngine(store=store, rag_engine=rag)
+                learnings = patrol.get_shared_learnings(limit=int(arguments.get("limit", 10)))
+
+                return [TextContent(type="text", text=json.dumps(_json_safe({
+                    "learnings": learnings,
+                    "count": len(learnings),
                 }), ensure_ascii=False))]
 
             else:
