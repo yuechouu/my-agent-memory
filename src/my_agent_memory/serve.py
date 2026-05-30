@@ -274,7 +274,31 @@ def _start_dreaming_scheduler(store: MultiAgentStore, interval_minutes: int):
     return t
 
 
-def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0):
+def _start_patrol_scheduler(store: MultiAgentStore, interval_minutes: int, include_learning: bool = False):
+    """Start a background thread that runs patrol at regular intervals."""
+    import threading
+    import time
+    from my_agent_memory.patrol import PatrolEngine
+    from my_agent_memory.rag import RAGEngine
+
+    def _patrol_loop():
+        while True:
+            time.sleep(interval_minutes * 60)
+            try:
+                rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+                patrol = PatrolEngine(store=store, rag_engine=rag)
+                report = patrol.patrol(include_learning=include_learning)
+                logger.info("Auto-patrol: %s", report.get("summary", "completed"))
+            except Exception as e:
+                logger.warning("Auto-patrol failed: %s", e)
+
+    t = threading.Thread(target=_patrol_loop, daemon=True)
+    t.start()
+    print(f"Patrol scheduler: every {interval_minutes} minutes (learning={include_learning})")
+    return t
+
+
+def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0, patrol_interval: int = 0, patrol_learning: bool = False):
     """Start the dashboard HTTP server."""
     if store_factory:
         DashboardHandler.store = store_factory()
@@ -283,6 +307,9 @@ def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0):
 
     if dream_interval > 0:
         _start_dreaming_scheduler(DashboardHandler.store, dream_interval)
+
+    if patrol_interval > 0:
+        _start_patrol_scheduler(DashboardHandler.store, patrol_interval, patrol_learning)
 
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Hermes Memory Dashboard: http://127.0.0.1:{port}")

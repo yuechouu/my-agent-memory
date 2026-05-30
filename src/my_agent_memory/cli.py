@@ -223,6 +223,8 @@ def _cmd_serve(args):
         port=args.port or 8765,
         store_factory=_get_store,
         dream_interval=getattr(args, 'dream_interval', 0) or 0,
+        patrol_interval=getattr(args, 'patrol_interval', 0) or 0,
+        patrol_learning=getattr(args, 'patrol_learning', False),
     )
 
 
@@ -349,6 +351,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="Start web management dashboard")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--dream-interval", type=int, default=0, help="Auto-dream interval in minutes (0=disabled)")
+    p.add_argument("--patrol-interval", type=int, default=0, help="Auto-patrol interval in minutes (0=disabled)")
+    p.add_argument("--patrol-learning", action="store_true", help="Include learning in auto-patrol")
     p.set_defaults(handler=_cmd_serve)
 
     # mcp-server

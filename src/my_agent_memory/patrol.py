@@ -358,11 +358,12 @@ class PatrolEngine:
         return gaps[:5]
 
     def _generate_learning(self, topic: str) -> Optional[dict]:
-        """生成学习内容"""
+        """生成学习内容并评估质量"""
         if not self.llm:
             return None
 
         try:
+            # 生成学习内容
             prompt = f"""请针对以下主题生成一份简洁的学习笔记（200-500字）：
 
 主题：{topic}
@@ -384,6 +385,14 @@ class PatrolEngine:
             if not content:
                 return None
 
+            # 评估内容质量
+            quality = self._assess_learning_quality(content, topic)
+
+            # 只保存质量合格的内容
+            if quality.get("score", 0) < 0.6:
+                logger.info(f"学习内容质量不足: {topic} (score: {quality.get('score', 0)})")
+                return None
+
             # 保存学习内容
             entry = self.store.save(
                 content=content,
@@ -400,11 +409,60 @@ class PatrolEngine:
                 "topic": topic,
                 "entry_id": entry.get("id"),
                 "file": str(file_path),
+                "quality": quality,
             }
 
         except Exception as e:
             logger.error(f"生成学习内容失败: {e}")
             return None
+
+    def _assess_learning_quality(self, content: str, topic: str) -> dict:
+        """评估学习内容质量
+
+        评估维度：
+        1. 完整性：是否涵盖核心概念
+        2. 准确性：是否有明显错误
+        3. 实用性：是否有实际应用场景
+        4. 结构性：是否有清晰的结构
+        """
+        if not self.llm:
+            return {"score": 0.8, "reason": "无 LLM，跳过评估"}
+
+        try:
+            prompt = f"""请评估以下学习内容的质量（0-1分）：
+
+主题：{topic}
+
+内容：
+{content[:500]}
+
+评估维度：
+1. 完整性（0.3分）：是否涵盖核心概念
+2. 准确性（0.3分）：是否有明显错误
+3. 实用性（0.2分）：是否有实际应用场景
+4. 结构性（0.2分）：是否有清晰的结构
+
+请返回 JSON 格式：
+{{"score": 0.85, "reason": "评估原因", "dimensions": {{"completeness": 0.9, "accuracy": 0.8, "practicality": 0.7, "structure": 0.8}}}}"""
+
+            response = self.llm.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=200,
+            )
+
+            if response:
+                import json
+                try:
+                    return json.loads(response)
+                except json.JSONDecodeError:
+                    pass
+
+        except Exception as e:
+            logger.error(f"质量评估失败: {e}")
+
+        # 默认返回及格分数
+        return {"score": 0.7, "reason": "评估失败，使用默认分数"}
 
     def _generate_summary(self, report: dict) -> str:
         """生成巡检摘要"""
