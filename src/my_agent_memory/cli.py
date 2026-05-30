@@ -471,11 +471,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=_cmd_patrol)
 
     # Multi-agent collaborative learning
-    p = sub.add_parser("share", help="Share a learning entry with other agents")
+    p = sub.add_parser("learn-share", help="Share a learning entry with other agents")
     p.add_argument("entry_id", type=int, help="Memory entry ID to share")
     p.set_defaults(handler=_cmd_share_learning)
 
-    p = sub.add_parser("shared", help="Get learnings shared by other agents")
+    p = sub.add_parser("learn-shared", help="Get learnings shared by other agents")
     p.add_argument("--limit", type=int, default=10, help="Max results")
     p.set_defaults(handler=_cmd_shared_learnings)
 
