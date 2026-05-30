@@ -411,6 +411,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_git.add_argument("--pattern", default="*.md,*.txt,*.rst", help="File patterns")
     p_git.set_defaults(handler=_cmd_rag_ingest_git)
 
+    p_sync = rag_sub.add_parser("sync", help="Sync RAG with source files")
+    p_sync.add_argument("--remove", action="store_true", help="Remove entries for missing sources")
+    p_sync.set_defaults(handler=_cmd_rag_sync)
+
+    p_cleanup = rag_sub.add_parser("cleanup", help="Remove RAG entries for missing sources")
+    p_cleanup.set_defaults(handler=_cmd_rag_cleanup)
+
     # Learn commands
     p = sub.add_parser("learn", help="Record a learning")
     p.add_argument("content", help="Learning content")
@@ -651,9 +658,56 @@ def _cmd_rag_ingest_git(args):
     _cmd_rag_ingest_dir(args)
 
     # Cleanup temp directory
-    if not is_local:
+    if not not is_local:
         import shutil
         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _cmd_rag_sync(args):
+    """Sync RAG documents with source files."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    print("Syncing RAG documents with sources...")
+    result = rag.sync(remove_orphans=args.remove)
+
+    print(f"\nTotal: {result['total']}")
+    print(f"Valid: {result['valid']}")
+    print(f"Updated: {result['updated']}")
+    print(f"Missing: {result['missing']}")
+
+    if result['removed']:
+        print(f"Removed: {result['removed']}")
+
+    if result['missing_docs']:
+        print("\nMissing sources:")
+        for doc in result['missing_docs']:
+            print(f"  - {doc['source']} (id: {doc['id']})")
+
+    if result['missing'] and not args.remove:
+        print("\nTip: Use --remove to delete entries for missing sources")
+
+
+def _cmd_rag_cleanup(args):
+    """Remove RAG entries for missing sources."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    print("Cleaning up RAG entries for missing sources...")
+    result = rag.cleanup()
+
+    print(f"\nTotal: {result['total']}")
+    print(f"Valid: {result['valid']}")
+    print(f"Removed: {result['removed']}")
+
+    if result['missing_docs']:
+        print("\nRemoved:")
+        for doc in result['missing_docs']:
+            print(f"  - {doc['source']}")
 
 
 # ── Learn command handlers ─────────────────────────────────

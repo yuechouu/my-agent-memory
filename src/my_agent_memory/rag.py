@@ -144,6 +144,75 @@ class RAGEngine:
         """Delete a document and all its chunks."""
         return self.db.delete_rag_document(document_id)
 
+    def sync(self, remove_orphans: bool = False) -> dict:
+        """Sync RAG documents with source files.
+
+        Checks if source files still exist and updates status.
+
+        Args:
+            remove_orphans: If True, delete RAG entries for missing sources
+
+        Returns:
+            Dict with sync results
+        """
+        from pathlib import Path
+        import urllib.request
+
+        documents = self.list_documents(limit=1000)
+        result = {
+            "total": len(documents),
+            "valid": 0,
+            "missing": 0,
+            "updated": 0,
+            "removed": 0,
+            "missing_docs": [],
+        }
+
+        for doc in documents:
+            source = doc.get("source", "")
+
+            # Check if source is a local file
+            if Path(source).exists():
+                # Check if content has changed
+                try:
+                    current_content = Path(source).read_text(encoding="utf-8")
+                    current_hash = hashlib.md5(current_content.encode()).hexdigest()
+                    if current_hash != doc.get("content_hash"):
+                        # Content changed, re-ingest
+                        self.ingest(
+                            source=source,
+                            content=current_content,
+                            title=doc.get("title"),
+                            domain=doc.get("domain"),
+                            tags=doc.get("tags"),
+                        )
+                        result["updated"] += 1
+                    else:
+                        result["valid"] += 1
+                except Exception:
+                    result["valid"] += 1
+            elif source.startswith("http"):
+                # URL - try to fetch
+                try:
+                    req = urllib.request.Request(source, method="HEAD", headers={"User-Agent": "my-agent-memory/1.0"})
+                    urllib.request.urlopen(req, timeout=10)
+                    result["valid"] += 1
+                except Exception:
+                    result["missing"] += 1
+                    result["missing_docs"].append({"id": doc["id"], "source": source})
+                    if remove_orphans:
+                        self.delete(doc["id"])
+                        result["removed"] += 1
+            else:
+                # Unknown source type
+                result["valid"] += 1
+
+        return result
+
+    def cleanup(self) -> dict:
+        """Remove RAG entries for missing sources."""
+        return self.sync(remove_orphans=True)
+
     def list_documents(
         self,
         domain: Optional[str] = None,
