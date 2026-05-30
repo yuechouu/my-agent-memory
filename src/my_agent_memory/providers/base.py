@@ -182,31 +182,165 @@ MEMORY_TAG_GRAPH_SCHEMA = {
     },
 }
 
+# RAG schemas
+RAG_INGEST_SCHEMA = {
+    "name": "rag_ingest",
+    "description": "Ingest a document into the RAG knowledge base. The document will be chunked, embedded, and indexed for search.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "description": "Document source (URL or file path)."},
+            "content": {"type": "string", "description": "Document content (markdown, text, etc.)."},
+            "title": {"type": "string", "description": "Document title."},
+            "domain": {"type": "string", "description": "Knowledge domain (programming, math, etc.)."},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for categorization."},
+        },
+        "required": ["source", "content"],
+    },
+}
+
+RAG_SEARCH_SCHEMA = {
+    "name": "rag_search",
+    "description": "Search RAG knowledge base using hybrid FTS5 + vector search. Use when: user asks about technical topics, API docs, code patterns.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query."},
+            "domain": {"type": "string", "description": "Filter by domain."},
+            "limit": {"type": "integer", "description": "Max results (default 5)."},
+        },
+        "required": ["query"],
+    },
+}
+
+RAG_LIST_SCHEMA = {
+    "name": "rag_list",
+    "description": "List ingested RAG documents.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string", "description": "Filter by domain."},
+            "limit": {"type": "integer", "description": "Max results (default 50)."},
+        },
+    },
+}
+
+RAG_DELETE_SCHEMA = {
+    "name": "rag_delete",
+    "description": "Delete a RAG document and all its chunks.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "document_id": {"type": "string", "description": "Document ID to delete."},
+        },
+        "required": ["document_id"],
+    },
+}
+
+# Learning schema
+MEMORY_LEARN_SCHEMA = {
+    "name": "memory_learn",
+    "description": "Record a learning (solution, research, pattern, summary). Learning memories can be promoted to knowledge after sufficient use.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "content": {"type": "string", "description": "The learning content."},
+            "learned_type": {
+                "type": "string",
+                "enum": ["learned-research", "learned-solution", "learned-summary", "learned-pattern"],
+                "description": "Type of learning (default: learned-solution).",
+            },
+            "title": {"type": "string", "description": "Short descriptive title."},
+            "domain": {"type": "string", "description": "Knowledge domain."},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags."},
+        },
+        "required": ["content"],
+    },
+}
+
+# Unified search schema
+MEMORY_UNIFIED_SEARCH_SCHEMA = {
+    "name": "memory_unified_search",
+    "description": "Unified search across structured memories, learned knowledge, and RAG documents. Best for comprehensive searches.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query."},
+            "domain": {"type": "string", "description": "Filter RAG by domain."},
+            "limit": {"type": "integer", "description": "Max results per category (default 5)."},
+        },
+        "required": ["query"],
+    },
+}
+
+# Patrol schemas
+MEMORY_PATROL_SCHEMA = {
+    "name": "memory_patrol",
+    "description": "Run a patrol: health check + optional self-learning. Checks memory health, RAG sync, and can learn new topics.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "include_learning": {
+                "type": "boolean",
+                "description": "Include self-learning phase (default: false).",
+            },
+        },
+    },
+}
+
+MEMORY_PATROL_LOG_SCHEMA = {
+    "name": "memory_patrol_log",
+    "description": "Get recent patrol log entries.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Max entries (default 20)."},
+        },
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Memory guidelines for system prompt
 # ---------------------------------------------------------------------------
 
 MEMORY_GUIDELINES = """
 ## Memory System
-You have access to a persistent memory system. Use it actively.
+You have access to a persistent memory system with RAG and self-learning capabilities.
 
 ### When to Search
 - User asks about past interactions, preferences, or project details
 - Before answering questions that might be in memory
+- Use `memory_unified_search` for comprehensive search across memories, learned knowledge, and RAG
 
 ### When to Save
 - User shares important preferences, decisions, instructions
 - User explicitly says to remember something
 - You learn durable facts (not temporary context)
 
-### When to Update
-- User corrects previously stored information
-- You notice contradictions between conversation and memory
+### When to Learn
+- You solve a problem and want to remember the solution
+- You research a topic and find valuable information
+- You discover a pattern or best practice
+- Use `memory_learn` to record learnings
+
+### When to Use RAG
+- User asks about technical documentation
+- You need to reference external documents
+- Use `rag_search` to search ingested documents
+- Use `rag_ingest` to add new documents
+
+### When to Patrol
+- Periodically check memory health
+- Sync RAG documents with sources
+- Use `memory_patrol` to run health check
 
 ### Memory Types
-- procedural: workflows, how-to steps, instructions
-- entity: facts about specific things (servers, tools, projects)
-- knowledge: general concepts, theories, configurations
+- user-*: identity, preferences, context
+- feedback-*: corrections, confirmations
+- project-*: progress, goals, decisions
+- learned-*: research, solutions, summaries, patterns (can be promoted to knowledge-*)
+- knowledge-*: promoted learnings, domain knowledge
+- reference-*: URLs, docs, code, configs
 """.strip()
 
 # ---------------------------------------------------------------------------
@@ -396,6 +530,12 @@ class MemoryProviderBase:
             MEMORY_RECALL_SCHEMA, MEMORY_LIST_SCHEMA, MEMORY_UPDATE_SCHEMA,
             MEMORY_ARCHIVE_SCHEMA, MEMORY_DREAM_SCHEMA, MEMORY_CONFLICTS_SCHEMA,
             MEMORY_TAG_GRAPH_SCHEMA,
+            # RAG tools
+            RAG_INGEST_SCHEMA, RAG_SEARCH_SCHEMA, RAG_LIST_SCHEMA, RAG_DELETE_SCHEMA,
+            # Learning and search
+            MEMORY_LEARN_SCHEMA, MEMORY_UNIFIED_SEARCH_SCHEMA,
+            # Patrol tools
+            MEMORY_PATROL_SCHEMA, MEMORY_PATROL_LOG_SCHEMA,
         ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
@@ -518,6 +658,88 @@ class MemoryProviderBase:
                         return json.dumps({"error": "Tag is required for 'related' action"})
                     related = self._store.tag_graph.get_related_tags(tag)
                     return json.dumps({"tag": tag, "related": related, "count": len(related)})
+
+            # RAG tools
+            elif tool_name == "rag_ingest":
+                from my_agent_memory.rag import RAGEngine
+                rag = RAGEngine(db=self._store.db, embed_client=self._store.embed_client)
+                result = rag.ingest(
+                    source=args["source"],
+                    content=args["content"],
+                    title=args.get("title"),
+                    domain=args.get("domain"),
+                    tags=args.get("tags"),
+                )
+                return json.dumps(result)
+
+            elif tool_name == "rag_search":
+                from my_agent_memory.rag import RAGEngine
+                rag = RAGEngine(db=self._store.db, embed_client=self._store.embed_client)
+                results = rag.search(
+                    query=args["query"],
+                    domain=args.get("domain"),
+                    limit=int(args.get("limit", 5)),
+                )
+                return json.dumps({"results": results, "count": len(results)})
+
+            elif tool_name == "rag_list":
+                from my_agent_memory.rag import RAGEngine
+                rag = RAGEngine(db=self._store.db, embed_client=self._store.embed_client)
+                results = rag.list_documents(
+                    domain=args.get("domain"),
+                    limit=int(args.get("limit", 50)),
+                )
+                return json.dumps({"documents": results, "count": len(results)})
+
+            elif tool_name == "rag_delete":
+                from my_agent_memory.rag import RAGEngine
+                rag = RAGEngine(db=self._store.db, embed_client=self._store.embed_client)
+                success = rag.delete(args["document_id"])
+                return json.dumps({"success": success})
+
+            # Learning tool
+            elif tool_name == "memory_learn":
+                tags = list(args.get("tags", []))
+                if args.get("domain"):
+                    tags.append(f"domain:{args['domain']}")
+                entry = self._store.save(
+                    content=args["content"],
+                    title=args.get("title", ""),
+                    tags=tags,
+                    scope="private",
+                    memory_type=args.get("learned_type", "learned-solution"),
+                )
+                entry.pop("embedding", None)
+                return json.dumps({"status": "learned", "entry": entry})
+
+            # Unified search
+            elif tool_name == "memory_unified_search":
+                result = self._store.unified_search(
+                    query=args["query"],
+                    domain=args.get("domain"),
+                    limit=int(args.get("limit", 5)),
+                )
+                return json.dumps(result)
+
+            # Patrol tools
+            elif tool_name == "memory_patrol":
+                from my_agent_memory.patrol import PatrolEngine
+                from my_agent_memory.rag import RAGEngine
+                rag = RAGEngine(db=self._store.db, embed_client=self._store.embed_client)
+                patrol = PatrolEngine(store=self._store, rag_engine=rag)
+                report = patrol.patrol(include_learning=args.get("include_learning", False))
+                return json.dumps({
+                    "summary": report.get("summary", ""),
+                    "actions": report.get("actions", []),
+                    "promotions": report.get("phase1", {}).get("promotions", []),
+                    "learnings": report.get("phase2", {}).get("learnings", []),
+                })
+
+            elif tool_name == "memory_patrol_log":
+                from my_agent_memory.patrol import PatrolEngine
+                patrol = PatrolEngine(store=self._store)
+                logs = patrol.get_patrol_log(limit=int(args.get("limit", 20)))
+                return json.dumps({"logs": logs, "count": len(logs)})
 
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
 

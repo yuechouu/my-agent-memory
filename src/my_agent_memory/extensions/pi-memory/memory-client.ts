@@ -183,4 +183,48 @@ export class MemoryClient {
     if (tag) params.tag = tag;
     return this.get("/api/tag-graph", params);
   }
+
+  // ── RAG ─────────────────────────────────────────────────
+
+  async ragIngest(source: string, content: string, title?: string, domain?: string, tags?: string[]): Promise<{ document_id: string; chunk_count: number }> {
+    return this.post("/api/rag/ingest", { source, content, title, domain, tags });
+  }
+
+  async ragSearch(query: string, domain?: string, limit = 5): Promise<{ results: any[]; count: number }> {
+    const params: Record<string, string> = { query, limit: String(limit) };
+    if (domain) params.domain = domain;
+    return this.get("/api/rag/search", params);
+  }
+
+  async ragList(domain?: string, limit = 50): Promise<{ documents: any[]; count: number }> {
+    const params: Record<string, string> = { limit: String(limit) };
+    if (domain) params.domain = domain;
+    return this.get("/api/rag/list", params);
+  }
+
+  async ragDelete(documentId: string): Promise<{ success: boolean }> {
+    return this.del(`/api/rag/${documentId}`);
+  }
+
+  // ── Learning ────────────────────────────────────────────
+
+  async learn(content: string, learnedType = "learned-solution", title?: string, domain?: string, tags?: string[]): Promise<any> {
+    return this.post("/api/learn", { content, learned_type: learnedType, title, domain, tags });
+  }
+
+  async unifiedSearch(query: string, domain?: string, limit = 5): Promise<any> {
+    const params: Record<string, string> = { query, limit: String(limit) };
+    if (domain) params.domain = domain;
+    return this.get("/api/unified-search", params);
+  }
+
+  // ── Patrol ──────────────────────────────────────────────
+
+  async patrol(includeLearning = false): Promise<any> {
+    return this.post("/api/patrol", { include_learning: includeLearning });
+  }
+
+  async patrolLog(limit = 20): Promise<{ logs: string[]; activity_files: string[] }> {
+    return this.get("/api/patrol/log", { limit: String(limit) });
+  }
 }

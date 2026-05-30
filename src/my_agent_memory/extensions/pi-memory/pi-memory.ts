@@ -498,6 +498,159 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
     },
   });
 
+  // ── RAG Tools ─────────────────────────────────────────
+
+  pi.registerTool({
+    name: "rag_ingest",
+    label: "RAG Ingest",
+    description: "Ingest a document into the RAG knowledge base. The document will be chunked, embedded, and indexed for search.",
+    parameters: Type.Object({
+      source: Type.String({ description: "Document source (URL or file path)." }),
+      content: Type.String({ description: "Document content." }),
+      title: Type.Optional(Type.String({ description: "Document title." })),
+      domain: Type.Optional(Type.String({ description: "Knowledge domain." })),
+      tags: Type.Optional(Type.Array(Type.String(), { description: "Tags." })),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().ragIngest(params.source, params.content, params.title, params.domain, params.tags);
+      return {
+        content: [{ type: "text", text: `Ingested: ${params.source} (${result.chunk_count} chunks)` }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "rag_search",
+    label: "RAG Search",
+    description: "Search RAG knowledge base using hybrid FTS5 + vector search.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query." }),
+      domain: Type.Optional(Type.String({ description: "Filter by domain." })),
+      limit: Type.Optional(Type.Number({ description: "Max results (default 5)." })),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().ragSearch(params.query, params.domain, params.limit);
+      const formatted = result.results.map((r: any) => `[${r.heading || "No heading"}] ${r.content?.slice(0, 100)}`).join("\n");
+      return {
+        content: [{ type: "text", text: formatted || "No RAG results found." }],
+        details: { count: result.count },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "rag_list",
+    label: "RAG List",
+    description: "List ingested RAG documents.",
+    parameters: Type.Object({
+      domain: Type.Optional(Type.String({ description: "Filter by domain." })),
+      limit: Type.Optional(Type.Number({ description: "Max results (default 50)." })),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().ragList(params.domain, params.limit);
+      const formatted = result.documents.map((d: any) => `[${d.id}] ${d.title || d.source}`).join("\n");
+      return {
+        content: [{ type: "text", text: `${result.count} documents:\n${formatted || "(empty)"}` }],
+        details: { count: result.count },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "rag_delete",
+    label: "RAG Delete",
+    description: "Delete a RAG document and all its chunks.",
+    parameters: Type.Object({
+      document_id: Type.String({ description: "Document ID to delete." }),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().ragDelete(params.document_id);
+      return {
+        content: [{ type: "text", text: result.success ? `Deleted: ${params.document_id}` : "Delete failed" }],
+        details: result,
+      };
+    },
+  });
+
+  // ── Learning Tool ─────────────────────────────────────
+
+  pi.registerTool({
+    name: "memory_learn",
+    label: "Memory Learn",
+    description: "Record a learning (solution, research, pattern, summary). Learning memories can be promoted to knowledge after sufficient use.",
+    parameters: Type.Object({
+      content: Type.String({ description: "The learning content." }),
+      learned_type: Type.Optional(Type.String({ description: "Type: learned-research, learned-solution, learned-summary, learned-pattern." })),
+      title: Type.Optional(Type.String({ description: "Short descriptive title." })),
+      domain: Type.Optional(Type.String({ description: "Knowledge domain." })),
+      tags: Type.Optional(Type.Array(Type.String(), { description: "Tags." })),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().learn(params.content, params.learned_type, params.title, params.domain, params.tags);
+      return {
+        content: [{ type: "text", text: `Learned: ${params.title || params.content.slice(0, 60)}` }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_unified_search",
+    label: "Unified Search",
+    description: "Unified search across structured memories, learned knowledge, and RAG documents.",
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query." }),
+      domain: Type.Optional(Type.String({ description: "Filter RAG by domain." })),
+      limit: Type.Optional(Type.Number({ description: "Max results per category (default 5)." })),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().unifiedSearch(params.query, params.domain, params.limit);
+      const parts = [];
+      if (result.memories?.length) parts.push(`Memories: ${result.memories.length}`);
+      if (result.learned?.length) parts.push(`Learned: ${result.learned.length}`);
+      if (result.rag?.length) parts.push(`RAG: ${result.rag.length}`);
+      return {
+        content: [{ type: "text", text: `Found ${result.total} results (${parts.join(", ")})` }],
+        details: result,
+      };
+    },
+  });
+
+  // ── Patrol Tools ──────────────────────────────────────
+
+  pi.registerTool({
+    name: "memory_patrol",
+    label: "Memory Patrol",
+    description: "Run a patrol: health check + optional self-learning.",
+    parameters: Type.Object({
+      include_learning: Type.Optional(Type.Boolean({ description: "Include self-learning phase (default: false)." })),
+    }),
+    async execute(_id, params) {
+      const report = await getClient().patrol(params.include_learning ?? false);
+      return {
+        content: [{ type: "text", text: `Patrol: ${report.summary || "Complete"}` }],
+        details: report,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "memory_patrol_log",
+    label: "Patrol Log",
+    description: "Get recent patrol log entries.",
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Number({ description: "Max entries (default 20)." })),
+    }),
+    async execute(_id, params) {
+      const result = await getClient().patrolLog(params.limit);
+      return {
+        content: [{ type: "text", text: `${result.logs.length} log entries:\n${result.logs.join("\n") || "(empty)"}` }],
+        details: result,
+      };
+    },
+  });
+
   // ── Slash Commands ────────────────────────────────────
 
   pi.registerCommand("memory", {
