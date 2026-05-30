@@ -400,7 +400,7 @@ function Header({ stats }) {
 }
 
 /* ── Sidebar ── */
-function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts, onTagGraph, onPatrol, onPatrolLearn }) {
+function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts, onTagGraph, onPatrol }) {
   const applyFilter = (updates) => {
     setFilters(f => ({ ...f, ...updates }));
     onSearch(updates);
@@ -475,8 +475,7 @@ function Sidebar({ filters, setFilters, stats, onSearch, onDreaming, onConflicts
 
       <button className="btn btn-danger" style={{ width: '100%' }} onClick={onDreaming}>Run Dreaming</button>
       <button className="btn btn-ghost" style={{ width: '100%' }} onClick={onTagGraph}>Tag Graph</button>
-      <button className="btn btn-info" style={{ width: '100%', marginBottom: 4 }} onClick={onPatrol}>Patrol</button>
-      <button className="btn btn-ghost" style={{ width: '100%' }} onClick={onPatrolLearn}>Patrol + Learn</button>
+      <button className="btn btn-info" style={{ width: '100%' }} onClick={onPatrol}>Patrol</button>
     </aside>
   );
 }
@@ -927,7 +926,6 @@ function App() {
           onConflicts={handleShowConflicts}
           onTagGraph={() => setShowTagGraph(true)}
           onPatrol={() => handlePatrol(false)}
-          onPatrolLearn={() => handlePatrol(true)}
         />
         <main className="main">
           <div className="toolbar">
@@ -1111,7 +1109,6 @@ function App() {
               </div>
             )}
             <div className="btn-row">
-              <button className="btn btn-primary" onClick={() => handlePatrol(true)}>Run with Learning</button>
               <button className="cancel" onClick={() => setShowPatrol(false)}>Close</button>
             </div>
           </div>
