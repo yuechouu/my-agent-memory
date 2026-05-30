@@ -386,13 +386,21 @@ class MultiAgentStore:
 
     # ── System Prompt Block ──────────────────────────────────
 
-    def get_system_prompt_block(self, agent_id: str = None, max_chars: int = None) -> str:
-        """Get hot layer content for system prompt injection."""
+    def get_system_prompt_block(self, agent_id: str = None, max_chars: int = None, include_types: list = None) -> str:
+        """Get hot layer content for system prompt injection.
+
+        Args:
+            agent_id: Agent ID (default: current agent)
+            max_chars: Max characters for truncation
+            include_types: Optional list of memory types to include.
+                          Example: ["procedural", "knowledge-*", "reference-code"]
+        """
         if not self.hot_layer:
             return ""
         return self.hot_layer.get_system_prompt_block(
             agent_id=agent_id or self.agent_id,
             max_chars=max_chars,
+            include_types=include_types,
         )
 
     # ── Stats ────────────────────────────────────────────────

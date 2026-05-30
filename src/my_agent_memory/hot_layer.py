@@ -92,7 +92,7 @@ class HotLayer:
         """, (agent_id,))
         return [_enrich_row(r) for r in rows]
 
-    def get_system_prompt_block(self, agent_id: str, max_chars: int = None) -> str:
+    def get_system_prompt_block(self, agent_id: str, max_chars: int = None, include_types: list = None) -> str:
         """Get the hot layer content formatted for system prompt injection.
 
         Agent-specific entries + shared entries, grouped by memory type.
@@ -102,6 +102,9 @@ class HotLayer:
             agent_id: Agent to get hot layer for.
             max_chars: Optional max characters. If set, truncates from the bottom
                        (lowest-priority type entries removed first) to fit.
+            include_types: Optional list of memory types to include.
+                          If None, include all types.
+                          Example: ["procedural", "knowledge-*", "reference-code"]
 
         Returns:
             Markdown-formatted string for system prompt injection.
@@ -113,6 +116,10 @@ class HotLayer:
         from my_agent_memory.db import _enrich_row
         from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG, LEGACY_TYPE_MAP, normalize_type
         entries = [_enrich_row(e) for e in entries]
+
+        # Filter by types if specified
+        if include_types:
+            entries = [e for e in entries if self._matches_type_filter(e, include_types)]
 
         lines = [f"## Memory ({agent_id})", ""]
 
@@ -173,6 +180,31 @@ class HotLayer:
             content = content[:200] + "..."
 
         return f"- {pin_marker}**{title}**{scope_marker}: {content}"
+
+    def _matches_type_filter(self, entry: dict, include_types: list) -> bool:
+        """Check if an entry matches the type filter.
+
+        Supports:
+        - Exact match: "procedural"
+        - Wildcard: "knowledge-*" matches "knowledge-summary", "knowledge-solution", etc.
+        - Legacy mapping: "procedural" matches "learned-solution"
+        """
+        from my_agent_memory.memory_types import normalize_type
+
+        entry_type = entry.get("memory_type", "")
+        normalized = normalize_type(entry_type)
+
+        for filter_type in include_types:
+            # Wildcard match
+            if filter_type.endswith("*"):
+                prefix = filter_type[:-1]
+                if normalized.startswith(prefix):
+                    return True
+            # Exact match
+            elif normalized == filter_type or entry_type == filter_type:
+                return True
+
+        return False
 
     def _format_memory_md(self, agent_id: str, entries: list[dict]) -> str:
         """Format the full MEMORY.md file content, grouped by memory type."""

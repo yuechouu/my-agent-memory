@@ -64,7 +64,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/system-prompt":
             agent = params.get("agent", self.store.agent_id)
             max_chars = int(params["max_chars"]) if params.get("max_chars") else None
-            self._handle_json({"agent": agent, "content": self.store.get_system_prompt_block(agent_id=agent, max_chars=max_chars)})
+            include_types = params.get("include_types", "").split(",") if params.get("include_types") else None
+            self._handle_json({"agent": agent, "content": self.store.get_system_prompt_block(agent_id=agent, max_chars=max_chars, include_types=include_types)})
         elif path == "/api/dreaming-log":
             self._handle_json(self.store.db.get_dreaming_log(limit=int(params.get("limit", 20))))
         elif path == "/api/audit-log":
