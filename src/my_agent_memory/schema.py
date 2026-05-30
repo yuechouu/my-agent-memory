@@ -167,6 +167,18 @@ CREATE TRIGGER IF NOT EXISTS rag_ad AFTER DELETE ON rag_chunks BEGIN
     VALUES ('delete', old.rowid, old.content, old.heading);
 END;
 
+-- RAG document version history
+CREATE TABLE IF NOT EXISTS rag_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id     TEXT NOT NULL REFERENCES rag_documents(id) ON DELETE CASCADE,
+    version         INTEGER NOT NULL,
+    content_hash    TEXT NOT NULL,
+    chunk_count     INTEGER DEFAULT 0,
+    change_summary  TEXT,                       -- what changed
+    created_at      TEXT DEFAULT (datetime('now')),
+    UNIQUE(document_id, version)
+);
+
 CREATE TRIGGER IF NOT EXISTS rag_au AFTER UPDATE ON rag_chunks BEGIN
     INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, content, heading)
     VALUES ('delete', old.rowid, old.content, old.heading);

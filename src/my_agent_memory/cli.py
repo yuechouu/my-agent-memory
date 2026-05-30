@@ -422,6 +422,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_cleanup = rag_sub.add_parser("cleanup", help="Remove RAG entries for missing sources")
     p_cleanup.set_defaults(handler=_cmd_rag_cleanup)
 
+    p_versions = rag_sub.add_parser("versions", help="Show version history for a document")
+    p_versions.add_argument("document_id", help="Document ID")
+    p_versions.set_defaults(handler=_cmd_rag_versions)
+
+    p_diff = rag_sub.add_parser("diff", help="Compare two versions of a document")
+    p_diff.add_argument("document_id", help="Document ID")
+    p_diff.add_argument("version_a", type=int, help="First version")
+    p_diff.add_argument("version_b", type=int, help="Second version")
+    p_diff.set_defaults(handler=_cmd_rag_diff)
+
     # Learn commands
     p = sub.add_parser("learn", help="Record a learning")
     p.add_argument("content", help="Learning content")
@@ -719,6 +729,40 @@ def _cmd_rag_cleanup(args):
         print("\nRemoved:")
         for doc in result['missing_docs']:
             print(f"  - {doc['source']}")
+
+
+def _cmd_rag_versions(args):
+    """Show version history for a document."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    versions = rag.get_version_history(args.document_id)
+    if not versions:
+        print(f"No version history for document: {args.document_id}")
+        return
+
+    print(f"Version history for {args.document_id}:")
+    for ver in versions:
+        print(f"  v{ver['version']}: {ver['change_summary']} ({ver['chunk_count']} chunks) - {ver['created_at']}")
+
+
+def _cmd_rag_diff(args):
+    """Compare two versions of a document."""
+    from my_agent_memory.rag import RAGEngine
+
+    store = _get_store_from_args(args)
+    rag = RAGEngine(db=store.db, embed_client=store.embed_client)
+
+    diff = rag.diff_versions(args.document_id, args.version_a, args.version_b)
+    if "error" in diff:
+        print(f"Error: {diff['error']}")
+        return
+
+    print(f"Version {diff['version_a']} vs {diff['version_b']}:")
+    print(f"  Chunks: {diff['chunks_a']} → {diff['chunks_b']} (diff: {diff['chunks_diff']:+d})")
+    print(f"  Content changed: {'Yes' if diff['changed'] else 'No'}")
 
 
 # ── Learn command handlers ─────────────────────────────────

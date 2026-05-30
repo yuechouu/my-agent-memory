@@ -86,6 +86,20 @@ class RAGEngine:
         if self.embed:
             self._embed_chunks(doc_id, chunks)
 
+        # 5. Save version history
+        change_summary = ""
+        if existing:
+            old_count = existing.get("chunk_count", 0)
+            new_count = len(chunks)
+            if old_count != new_count:
+                change_summary = f"Chunks: {old_count} → {new_count}"
+            else:
+                change_summary = "Content updated"
+        else:
+            change_summary = "Initial ingestion"
+
+        self._save_version(doc_id, content_hash, len(chunks), change_summary)
+
         return {"document_id": doc_id, "chunk_count": len(chunks)}
 
     def search(
@@ -212,6 +226,61 @@ class RAGEngine:
     def cleanup(self) -> dict:
         """Remove RAG entries for missing sources."""
         return self.sync(remove_orphans=True)
+
+    def get_version_history(self, document_id: str) -> list[dict]:
+        """Get version history for a document."""
+        rows = self.db.fetchall(
+            """SELECT * FROM rag_versions
+               WHERE document_id = ?
+               ORDER BY version DESC""",
+            (document_id,),
+        )
+        return [dict(r) for r in rows]
+
+    def get_current_version(self, document_id: str) -> int:
+        """Get current version number for a document."""
+        row = self.db.fetchone(
+            "SELECT MAX(version) as max_ver FROM rag_versions WHERE document_id = ?",
+            (document_id,),
+        )
+        return row["max_ver"] if row and row["max_ver"] else 0
+
+    def _save_version(self, document_id: str, content_hash: str, chunk_count: int, change_summary: str = ""):
+        """Save a version record for a document."""
+        current_version = self.get_current_version(document_id)
+        new_version = current_version + 1
+
+        self.db.execute(
+            """INSERT INTO rag_versions (document_id, version, content_hash, chunk_count, change_summary)
+               VALUES (?, ?, ?, ?, ?)""",
+            (document_id, new_version, content_hash, chunk_count, change_summary),
+        )
+        self.db.commit()
+
+    def diff_versions(self, document_id: str, version_a: int, version_b: int) -> dict:
+        """Compare two versions of a document."""
+        ver_a = self.db.fetchone(
+            "SELECT * FROM rag_versions WHERE document_id = ? AND version = ?",
+            (document_id, version_a),
+        )
+        ver_b = self.db.fetchone(
+            "SELECT * FROM rag_versions WHERE document_id = ? AND version = ?",
+            (document_id, version_b),
+        )
+
+        if not ver_a or not ver_b:
+            return {"error": "Version not found"}
+
+        return {
+            "version_a": version_a,
+            "version_b": version_b,
+            "chunks_a": ver_a["chunk_count"],
+            "chunks_b": ver_b["chunk_count"],
+            "chunks_diff": ver_b["chunk_count"] - ver_a["chunk_count"],
+            "hash_a": ver_a["content_hash"],
+            "hash_b": ver_b["content_hash"],
+            "changed": ver_a["content_hash"] != ver_b["content_hash"],
+        }
 
     def list_documents(
         self,
