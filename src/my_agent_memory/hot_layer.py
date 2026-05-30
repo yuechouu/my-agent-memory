@@ -103,7 +103,7 @@ class HotLayer:
             max_chars: Optional max characters. If set, truncates from the bottom
                        (lowest-priority type entries removed first) to fit.
             include_types: Optional list of memory types to include.
-                          If None, include all types.
+                          If None, use agent config or include all types.
                           Example: ["procedural", "knowledge-*", "reference-code"]
 
         Returns:
@@ -117,9 +117,10 @@ class HotLayer:
         from my_agent_memory.memory_types import MEMORY_TYPE_CONFIG, LEGACY_TYPE_MAP, normalize_type
         entries = [_enrich_row(e) for e in entries]
 
-        # Filter by types if specified
-        if include_types:
-            entries = [e for e in entries if self._matches_type_filter(e, include_types)]
+        # Filter by types: explicit param > agent config > all types
+        types_filter = include_types or self._get_agent_type_filter(agent_id)
+        if types_filter:
+            entries = [e for e in entries if self._matches_type_filter(e, types_filter)]
 
         lines = [f"## Memory ({agent_id})", ""]
 
@@ -180,6 +181,39 @@ class HotLayer:
             content = content[:200] + "..."
 
         return f"- {pin_marker}**{title}**{scope_marker}: {content}"
+
+    def _get_agent_type_filter(self, agent_id: str) -> list:
+        """Get type filter from agent configuration.
+
+        Agent config is stored in ~/.hermes/agents/{agent_id}/config.yaml
+        or can be set via the API.
+        """
+        import yaml
+        from pathlib import Path
+
+        # Check for agent config file
+        config_path = Path.home() / ".hermes" / "agents" / agent_id / "config.yaml"
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f) or {}
+                return config.get("memory_types")
+            except Exception:
+                pass
+
+        # Default type filters based on agent name patterns
+        agent_lower = agent_id.lower()
+        if any(kw in agent_lower for kw in ["code", "coding", "dev", "program"]):
+            return ["procedural", "knowledge-*", "reference-code", "learned-solution"]
+        elif any(kw in agent_lower for kw in ["research", "study", "learn"]):
+            return ["knowledge-*", "learned-*", "reference-*"]
+        elif any(kw in agent_lower for kw in ["chat", "social", "friend"]):
+            return ["user-*", "feedback-*", "knowledge-summary"]
+        elif any(kw in agent_lower for kw in ["project", "manage", "task"]):
+            return ["project-*", "procedural", "knowledge-*"]
+
+        # No filter - include all types
+        return None
 
     def _matches_type_filter(self, entry: dict, include_types: list) -> bool:
         """Check if an entry matches the type filter.
