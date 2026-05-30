@@ -65,11 +65,8 @@ class PatrolEngine:
         self.registry_path = self.patrol_dir / "registry.json"
         self._registry = self._load_registry()
 
-    def patrol(self, include_learning: bool = False) -> dict:
+    def patrol(self) -> dict:
         """执行一次完整巡检
-
-        Args:
-            include_learning: 是否包含自主学习阶段
 
         Returns:
             巡检报告
@@ -78,21 +75,15 @@ class PatrolEngine:
         report = {
             "timestamp": now.isoformat(),
             "phase1": {},
-            "phase2": {},
             "actions": [],
             "summary": "",
         }
 
         try:
-            # Phase 1: 健康检查 + RAG 同步
+            # 健康检查 + RAG 同步
             logger.info("── 巡检开始 ──")
             report["phase1"] = self._phase1_health_check()
             report["actions"].extend(report["phase1"].get("actions", []))
-
-            # Phase 2: 自主学习（可选）
-            if include_learning and self.llm:
-                report["phase2"] = self._phase2_learning()
-                report["actions"].extend(report["phase2"].get("actions", []))
 
             # 生成摘要
             report["summary"] = self._generate_summary(report)

@@ -276,15 +276,10 @@ MEMORY_UNIFIED_SEARCH_SCHEMA = {
 # Patrol schemas
 MEMORY_PATROL_SCHEMA = {
     "name": "memory_patrol",
-    "description": "Run a patrol: health check + optional self-learning. Checks memory health, RAG sync, and can learn new topics.",
+    "description": "Run a patrol: health check + RAG sync.",
     "parameters": {
         "type": "object",
-        "properties": {
-            "include_learning": {
-                "type": "boolean",
-                "description": "Include self-learning phase (default: false).",
-            },
-        },
+        "properties": {},
     },
 }
 
@@ -727,7 +722,7 @@ class MemoryProviderBase:
                 from my_agent_memory.rag import RAGEngine
                 rag = RAGEngine(db=self._store.db, embed_client=self._store.embed_client)
                 patrol = PatrolEngine(store=self._store, rag_engine=rag)
-                report = patrol.patrol(include_learning=args.get("include_learning", False))
+                report = patrol.patrol()
                 return json.dumps({
                     "summary": report.get("summary", ""),
                     "actions": report.get("actions", []),

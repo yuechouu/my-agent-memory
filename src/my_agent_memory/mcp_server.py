@@ -273,18 +273,10 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
             # Patrol tools
             Tool(
                 name="memory_patrol",
-                description=(
-                    "Run a patrol: health check + optional self-learning. "
-                    "Checks memory health, RAG sync, and can learn new topics."
-                ),
+                description="Run a patrol: health check + RAG sync.",
                 inputSchema={
                     "type": "object",
-                    "properties": {
-                        "include_learning": {
-                            "type": "boolean",
-                            "description": "Include self-learning phase (default: false).",
-                        },
-                    },
+                    "properties": {},
                 },
             ),
             Tool(
@@ -580,7 +572,7 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
                 from my_agent_memory.patrol import PatrolEngine
 
                 patrol = PatrolEngine(store=store, rag_engine=rag)
-                report = patrol.patrol(include_learning=arguments.get("include_learning", False))
+                report = patrol.patrol()
 
                 return [TextContent(type="text", text=json.dumps(_json_safe({
                     "summary": report.get("summary", ""),

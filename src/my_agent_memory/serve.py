@@ -129,7 +129,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             from my_agent_memory.rag import RAGEngine
             rag = RAGEngine(db=self.store.db, embed_client=self.store.embed_client)
             patrol = PatrolEngine(store=self.store, rag_engine=rag)
-            report = patrol.patrol(include_learning=body.get("include_learning", False))
+            report = patrol.patrol()
             self._handle_json(report)
         elif path.startswith("/api/conflicts/") and path.endswith("/resolve"):
             cid = int(path.split("/")[3])
@@ -274,7 +274,7 @@ def _start_dreaming_scheduler(store: MultiAgentStore, interval_minutes: int):
     return t
 
 
-def _start_patrol_scheduler(store: MultiAgentStore, interval_minutes: int, include_learning: bool = False):
+def _start_patrol_scheduler(store: MultiAgentStore, interval_minutes: int):
     """Start a background thread that runs patrol at regular intervals."""
     import threading
     import time
@@ -287,18 +287,18 @@ def _start_patrol_scheduler(store: MultiAgentStore, interval_minutes: int, inclu
             try:
                 rag = RAGEngine(db=store.db, embed_client=store.embed_client)
                 patrol = PatrolEngine(store=store, rag_engine=rag)
-                report = patrol.patrol(include_learning=include_learning)
+                report = patrol.patrol()
                 logger.info("Auto-patrol: %s", report.get("summary", "completed"))
             except Exception as e:
                 logger.warning("Auto-patrol failed: %s", e)
 
     t = threading.Thread(target=_patrol_loop, daemon=True)
     t.start()
-    print(f"Patrol scheduler: every {interval_minutes} minutes (learning={include_learning})")
+    print(f"Patrol scheduler: every {interval_minutes} minutes")
     return t
 
 
-def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0, patrol_interval: int = 0, patrol_learning: bool = False):
+def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0, patrol_interval: int = 0):
     """Start the dashboard HTTP server."""
     if store_factory:
         DashboardHandler.store = store_factory()
@@ -309,7 +309,7 @@ def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0, pa
         _start_dreaming_scheduler(DashboardHandler.store, dream_interval)
 
     if patrol_interval > 0:
-        _start_patrol_scheduler(DashboardHandler.store, patrol_interval, patrol_learning)
+        _start_patrol_scheduler(DashboardHandler.store, patrol_interval)
 
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Hermes Memory Dashboard: http://127.0.0.1:{port}")

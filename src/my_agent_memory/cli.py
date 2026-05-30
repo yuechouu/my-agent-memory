@@ -224,7 +224,6 @@ def _cmd_serve(args):
         store_factory=_get_store,
         dream_interval=getattr(args, 'dream_interval', 0) or 0,
         patrol_interval=getattr(args, 'patrol_interval', 0) or 0,
-        patrol_learning=getattr(args, 'patrol_learning', False),
     )
 
 
@@ -352,7 +351,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--dream-interval", type=int, default=0, help="Auto-dream interval in minutes (0=disabled)")
     p.add_argument("--patrol-interval", type=int, default=0, help="Auto-patrol interval in minutes (0=disabled)")
-    p.add_argument("--patrol-learning", action="store_true", help="Include learning in auto-patrol")
     p.set_defaults(handler=_cmd_serve)
 
     # mcp-server
@@ -464,8 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=_cmd_unified_search)
 
     # Patrol commands
-    p = sub.add_parser("patrol", help="Run patrol (health check + learning)")
-    p.add_argument("--learn", action="store_true", help="Include self-learning phase")
+    p = sub.add_parser("patrol", help="Run patrol (health check)")
     p.add_argument("--log", action="store_true", help="Show patrol log")
     p.add_argument("--activity", action="store_true", help="Show activity files")
     p.set_defaults(handler=_cmd_patrol)
@@ -931,7 +928,7 @@ def _cmd_patrol(args):
 
     # 执行巡检
     print("执行巡检...")
-    report = patrol.patrol(include_learning=args.learn)
+    report = patrol.patrol()
 
     # 输出结果
     print(f"\n=== 巡检报告 ===")
@@ -958,15 +955,6 @@ def _cmd_patrol(args):
         print(f"\n⬆️ 晋升:")
         for p in promotions:
             print(f"  {p['from']} → {p['to']} (score: {p['score']:.2f})")
-
-    # Phase 2
-    if args.learn:
-        p2 = report.get("phase2", {})
-        learnings = p2.get("learnings", [])
-        if learnings:
-            print(f"\n📖 学习:")
-            for l in learnings:
-                print(f"  {l['topic']}")
 
     # Actions
     actions = report.get("actions", [])
