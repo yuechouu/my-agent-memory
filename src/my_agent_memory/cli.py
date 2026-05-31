@@ -221,6 +221,7 @@ def _cmd_serve(args):
     from my_agent_memory.serve import run_server
     run_server(
         port=args.port or 8765,
+        host=getattr(args, 'host', '127.0.0.1') or '127.0.0.1',
         store_factory=_get_store,
         dream_interval=getattr(args, 'dream_interval', 0) or 0,
         patrol_interval=getattr(args, 'patrol_interval', 0) or 0,
@@ -349,6 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
     # serve
     p = sub.add_parser("serve", help="Start web management dashboard")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p.add_argument("--dream-interval", type=int, default=0, help="Auto-dream interval in minutes (0=disabled)")
     p.add_argument("--patrol-interval", type=int, default=0, help="Auto-patrol interval in minutes (0=disabled)")
     p.set_defaults(handler=_cmd_serve)

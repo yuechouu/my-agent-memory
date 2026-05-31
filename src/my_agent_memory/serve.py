@@ -299,7 +299,7 @@ def _start_patrol_scheduler(store: MultiAgentStore, interval_minutes: int):
     return t
 
 
-def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0, patrol_interval: int = 0):
+def run_server(port: int = 8765, host: str = "127.0.0.1", store_factory=None, dream_interval: int = 0, patrol_interval: int = 0):
     """Start the dashboard HTTP server."""
     if store_factory:
         DashboardHandler.store = store_factory()
@@ -312,8 +312,8 @@ def run_server(port: int = 8765, store_factory=None, dream_interval: int = 0, pa
     if patrol_interval > 0:
         _start_patrol_scheduler(DashboardHandler.store, patrol_interval)
 
-    server = HTTPServer(("127.0.0.1", port), DashboardHandler)
-    print(f"Hermes Memory Dashboard: http://127.0.0.1:{port}")
+    server = HTTPServer((host, port), DashboardHandler)
+    print(f"Hermes Memory Dashboard: http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
