@@ -177,17 +177,39 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
 
   // ── Session Start: read flags, create client ──────────
 
+  // Listen for mode_ready event from zz-mode
+  let getCurrentMode: (() => string) | null = null;
+  pi.events.on("mode_ready", (data: any) => {
+    getCurrentMode = data.getCurrentMode;
+    // Update agent ID when mode changes
+    const flagAgent = pi.getFlag("memory-agent");
+    if (!flagAgent && getCurrentMode) {
+      agentId = getCurrentMode();
+    }
+  });
+
+  pi.events.on("mode_changed", (data: any) => {
+    getCurrentMode = data.getCurrentMode;
+    // Update agent ID when mode changes
+    const flagAgent = pi.getFlag("memory-agent");
+    if (!flagAgent && getCurrentMode) {
+      agentId = getCurrentMode();
+    }
+  });
+
   pi.on("session_start", (_event, ctx) => {
     baseUrl = String(pi.getFlag("memory-url") ?? DEFAULT_BASE_URL);
     maxChars = Number(pi.getFlag("memory-max-chars") ?? DEFAULT_MAX_CHARS);
     autoExtract = Boolean(pi.getFlag("memory-auto-extract") ?? true);
 
-    // Dynamic agent ID: flag > session name > cwd basename
+    // Dynamic agent ID: flag > mode > session name > cwd basename
     const flagAgent = pi.getFlag("memory-agent");
     if (flagAgent) {
       agentId = String(flagAgent);
+    } else if (getCurrentMode) {
+      agentId = getCurrentMode();
     } else {
-      // Use session name or cwd basename as agent ID
+      // Fallback: use session name or cwd basename
       const sessionName = ctx.sessionManager.getSessionName?.();
       const cwd = ctx.cwd || "";
       const cwdBasename = cwd.split(/[/\\]/).pop() || "pi";
