@@ -225,6 +225,7 @@ def _cmd_serve(args):
         store_factory=_get_store,
         dream_interval=getattr(args, 'dream_interval', 0) or 0,
         patrol_interval=getattr(args, 'patrol_interval', 0) or 0,
+        enable_mcp_sse=getattr(args, 'enable_mcp_sse', False),
     )
 
 
@@ -353,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p.add_argument("--dream-interval", type=int, default=0, help="Auto-dream interval in minutes (0=disabled)")
     p.add_argument("--patrol-interval", type=int, default=0, help="Auto-patrol interval in minutes (0=disabled)")
+    p.add_argument("--enable-mcp-sse", action="store_true", help="Enable MCP SSE server on port+1")
     p.set_defaults(handler=_cmd_serve)
 
     # mcp-server

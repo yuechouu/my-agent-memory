@@ -305,7 +305,7 @@ def _start_patrol_scheduler(store: MultiAgentStore, interval_minutes: int):
     return t
 
 
-def run_server(port: int = 8765, host: str = "127.0.0.1", store_factory=None, dream_interval: int = 0, patrol_interval: int = 0):
+def run_server(port: int = 8765, host: str = "127.0.0.1", store_factory=None, dream_interval: int = 0, patrol_interval: int = 0, enable_mcp_sse: bool = False):
     """Start the dashboard HTTP server."""
     if store_factory:
         DashboardHandler.store = store_factory()
@@ -317,6 +317,22 @@ def run_server(port: int = 8765, host: str = "127.0.0.1", store_factory=None, dr
 
     if patrol_interval > 0:
         _start_patrol_scheduler(DashboardHandler.store, patrol_interval)
+
+    if enable_mcp_sse:
+        # Start MCP SSE server on a different port
+        import threading
+        def _start_mcp_sse():
+            import asyncio
+            from my_agent_memory.mcp_server import run_mcp_server
+            asyncio.run(run_mcp_server(
+                transport="sse",
+                port=port + 1,
+                db_path=str(DashboardHandler.store.db.path),
+            ))
+
+        mcp_thread = threading.Thread(target=_start_mcp_sse, daemon=True)
+        mcp_thread.start()
+        print(f"MCP SSE Server: http://{host}:{port + 1}/sse")
 
     server = HTTPServer((host, port), DashboardHandler)
     print(f"Hermes Memory Dashboard: http://{host}:{port}")
