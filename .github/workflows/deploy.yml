@@ -1,0 +1,89 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'pyproject.toml'
+      - 'scripts/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H 111.229.146.134 >> ~/.ssh/known_hosts
+
+      - name: Create deployment package
+        run: |
+          tar czf /tmp/my-agent-memory.tar.gz \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            --exclude='docs' \
+            .
+
+      - name: Upload to server
+        run: |
+          scp /tmp/my-agent-memory.tar.gz root@111.229.146.134:/tmp/
+
+      - name: Deploy and restart
+        run: |
+          ssh root@111.229.146.134 '
+            set -e
+
+            # Backup current version
+            if [ -d /opt/my-agent-memory ]; then
+              cp -r /opt/my-agent-memory /opt/my-agent-memory.bak 2>/dev/null || true
+            fi
+
+            # Extract new version
+            cd /opt/my-agent-memory
+            tar xzf /tmp/my-agent-memory.tar.gz
+
+            # Install dependencies
+            source venv/bin/activate
+            pip install -i https://pypi.org/simple/ -e . 2>&1 | tail -5
+
+            # Restart service
+            systemctl restart hermes-memory
+
+            # Wait for service to start
+            sleep 3
+
+            # Check if service is running
+            if systemctl is-active --quiet hermes-memory; then
+              echo "✅ Deployment successful"
+              systemctl status hermes-memory --no-pager | head -5
+            else
+              echo "❌ Deployment failed, rolling back..."
+              if [ -d /opt/my-agent-memory.bak ]; then
+                rm -rf /opt/my-agent-memory
+                mv /opt/my-agent-memory.bak /opt/my-agent-memory
+                systemctl restart hermes-memory
+              fi
+              exit 1
+            fi
+
+            # Cleanup
+            rm -f /tmp/my-agent-memory.tar.gz
+            rm -rf /opt/my-agent-memory.bak
+          '
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          curl -s --connect-timeout 10 -H "Host: memory.local" http://111.229.146.134/api/stats | grep -q "total" && echo "✅ Server is responding" || echo "⚠️ Server may not be responding"
