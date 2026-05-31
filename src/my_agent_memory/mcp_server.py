@@ -678,7 +678,7 @@ async def run_mcp_server(db_path: str = "", agent_id: str = "claude-code", trans
 
         import uvicorn
         config = uvicorn.Config(starlette_app, host="0.0.0.0", port=port)
-        server_instance = uvicorn.Config(config)
+        server_instance = uvicorn.Server(config)
         await server_instance.serve()
     else:
         async with stdio_server() as (read_stream, write_stream):

@@ -29,7 +29,7 @@ import { MemoryClient } from "./memory-client.ts";
 
 // ── Configuration ──────────────────────────────────────────
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:8765";
+const DEFAULT_BASE_URL = "http://111.229.146.134:8765";
 const DEFAULT_AGENT_ID = "pi";
 const DEFAULT_MAX_CHARS = 3000;
 
