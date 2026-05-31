@@ -179,9 +179,21 @@ export default function piMemoryExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", (_event, ctx) => {
     baseUrl = String(pi.getFlag("memory-url") ?? DEFAULT_BASE_URL);
-    agentId = String(pi.getFlag("memory-agent") ?? DEFAULT_AGENT_ID);
     maxChars = Number(pi.getFlag("memory-max-chars") ?? DEFAULT_MAX_CHARS);
     autoExtract = Boolean(pi.getFlag("memory-auto-extract") ?? true);
+
+    // Dynamic agent ID: flag > session name > cwd basename
+    const flagAgent = pi.getFlag("memory-agent");
+    if (flagAgent) {
+      agentId = String(flagAgent);
+    } else {
+      // Use session name or cwd basename as agent ID
+      const sessionName = ctx.sessionManager.getSessionName?.();
+      const cwd = ctx.cwd || "";
+      const cwdBasename = cwd.split(/[/\\]/).pop() || "pi";
+      agentId = sessionName || cwdBasename;
+    }
+
     client = new MemoryClient(baseUrl);
     // Silently check connectivity
     getClient().stats().catch(() => {});
