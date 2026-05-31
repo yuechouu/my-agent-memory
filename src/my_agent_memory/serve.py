@@ -238,7 +238,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if length == 0:
             return {}
         raw = self.rfile.read(length)
-        return json.loads(raw.decode("utf-8"))
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            # Try with latin-1 encoding
+            return json.loads(raw.decode("latin-1"))
+        except json.JSONDecodeError:
+            return {}
 
     def _error(self, code: int, message: str):
         body = json.dumps({"error": message}).encode("utf-8")

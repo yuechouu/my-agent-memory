@@ -11,7 +11,7 @@ export class MemoryClient {
   private baseUrl: string;
   private timeout: number;
 
-  constructor(baseUrl = "http://127.0.0.1:8765", timeout = 10000) {
+  constructor(baseUrl = "http://111.229.146.134:8765", timeout = 10000) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.timeout = timeout;
   }

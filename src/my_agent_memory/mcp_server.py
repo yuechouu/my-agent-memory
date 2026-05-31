@@ -651,11 +651,38 @@ def create_server(db_path: str = "", agent_id: str = "claude-code") -> Server:
     return server
 
 
-async def run_mcp_server(db_path: str = "", agent_id: str = "claude-code"):
-    """Run the MCP server via stdio transport."""
+async def run_mcp_server(db_path: str = "", agent_id: str = "claude-code", transport: str = "stdio", port: int = 8766):
+    """Run the MCP server."""
     server = create_server(db_path=db_path, agent_id=agent_id)
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+
+    if transport == "sse":
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.routing import Route, Mount
+
+        sse = SseServerTransport("/messages/")
+
+        async def handle_sse(request):
+            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+                await server.run(streams[0], streams[1], server.create_initialization_options())
+
+        async def handle_messages(request):
+            await sse.handle_post_message(request.scope, request.receive, request._send)
+
+        starlette_app = Starlette(
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Route("/messages/", endpoint=handle_messages, methods=["POST"]),
+            ],
+        )
+
+        import uvicorn
+        config = uvicorn.Config(starlette_app, host="0.0.0.0", port=port)
+        server_instance = uvicorn.Config(config)
+        await server_instance.serve()
+    else:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
 def main():
@@ -664,10 +691,17 @@ def main():
     parser = argparse.ArgumentParser(description="my-agent-memory MCP server")
     parser.add_argument("--db-path", default="", help="SQLite database path")
     parser.add_argument("--agent-id", default="claude-code", help="Agent identifier")
+    parser.add_argument("--transport", default="stdio", choices=["stdio", "sse"], help="Transport type")
+    parser.add_argument("--port", type=int, default=8766, help="Port for SSE transport")
     args = parser.parse_args()
 
     import asyncio
-    asyncio.run(run_mcp_server(db_path=args.db_path, agent_id=args.agent_id))
+    asyncio.run(run_mcp_server(
+        db_path=args.db_path,
+        agent_id=args.agent_id,
+        transport=args.transport,
+        port=args.port,
+    ))
 
 
 if __name__ == "__main__":

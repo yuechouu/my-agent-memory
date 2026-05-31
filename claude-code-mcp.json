@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "my-agent-memory": {
-      "command": "my-agent-memory",
-      "args": ["mcp-server"],
-      "env": {
-        "HERMES_AGENT_ID": "claude-code"
+      "transport": "sse",
+      "url": "http://111.229.146.134:8765/sse",
+      "headers": {
+        "Host": "memory.local"
       }
     }
   }
